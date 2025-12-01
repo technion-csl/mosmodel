@@ -1,3 +1,4 @@
 [submodule "mosalloc"]
 	path = mosalloc
 	url = git@github.com:technion-csl/mosalloc.git
+	branch = integrate-mosmodeler

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+import sys
+import os
+sys.path.append(os.path.dirname(sys.argv[0])+"/..")
+from Utils.utils import *
+from Utils.ConfigurationFile import *
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -17,13 +22,11 @@ def round_down(x, base):
 mem_max_size = args.mem_max_size_kb * 1024
 brk_pool_size = round_down(mem_max_size, 4096)
 mmap_pool_size = brk_pool_size
-layout_template = '-fps 1GB -aps {0} -as1 {1} -ae1 {2} -as2 {3} -ae2 {4} -bps {5} -bs1 {6} -be1 {7} -bs2 {8} -be2 {9}'
-layout_4kb_pages = str.format(layout_template,
-        mmap_pool_size, 0, 0, 0, 0,
-        brk_pool_size, 0, 0, 0, 0)
 
-layout = 'layout4kb: ' + layout_4kb_pages
 
-with open(args.output, 'w+') as output_fid:
-    print(layout, file=output_fid)
+configuration = Configuration()
+configuration.setPoolsSize(brk_size=brk_pool_size,
+                           file_size=1*gb,
+                           mmap_size=mmap_pool_size)
+configuration.exportToCSV(args.output, "layout4kb")
 

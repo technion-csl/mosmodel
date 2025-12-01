@@ -1,7 +1,0 @@
--fps 1GB -bps 90112 -aps 2151677952 -as1 0 -ae1 0 -as2 0 -ae2 0
--fps 1GB -bps 90112 -aps 2151677952 -as1 0 -ae1 0 -as2 2MB -ae2 4MB
--fps 1GB -bps 90112 -aps 2151677952 -as1 0 -ae1 0 -as2 0 -ae2 2MB
--fps 1GB -bps 90112 -aps 2151677952 -as1 0 -ae1 0 -as2 0 -ae2 4MB
--fps 1GB -bps 90112 -aps 2GB -as1 0 -ae1 0 -as2 0 -ae2 2GB
-
-

@@ -1,5 +1,3 @@
-experiments/
-analysis/pebs_tlb_miss_trace/
 
 *.o
 *.a

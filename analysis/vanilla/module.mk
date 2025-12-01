@@ -1,0 +1,9 @@
+MODULE_NAME := analysis/vanilla
+SUBMODULES := 
+
+LAYOUTS := $(VANILLA_LAYOUTS)
+
+include $(COMMON_ANALYSIS_MAKEFILE)
+
+undefine LAYOUTS
+

@@ -4,8 +4,13 @@ import pandas as pd
 import numpy as np
 
 class PerformanceStatistics:
-    def __init__(self, csv_file, index_col=None):
-        self._df = pd.read_csv(csv_file, index_col=index_col)
+    def __init__(self, perf_file, index_col=None):
+        if type(perf_file) is str:
+            self._df = pd.read_csv(perf_file, index_col=index_col)
+        elif type(perf_file) is pd.DataFrame:
+            self._df = perf_file.copy()
+        else:
+            assert False
         self._df.fillna(0, inplace=True)
 
     def __getDataSet(self, index=None):
@@ -27,6 +32,12 @@ class PerformanceStatistics:
     def getIndexColumn(self):
         return np.array(self._df.index)
 
+    def getWalkPending(self, index=None):
+        return self.__getWalkCounter(index, 'pending')
+
+    def getWalkActive(self, index=None):
+        return self.__getWalkCounter(index, 'active')
+
     def getWalkDuration(self, index=None):
         walk_duration = self.__getWalkCounter(index, 'active')
         if walk_duration is not None:
@@ -46,6 +57,9 @@ class PerformanceStatistics:
             raise Exception('the data-set has no performance counters for STLB hits!')
 
     def getStlbMisses(self, index=None):
+        return self.getStlbMisses_completed(index)
+
+    def getStlbMisses_started(self, index=None):
         data_set = self.__getDataSet(index)
         if 'dtlb_load_misses.miss_causes_a_walk' in self._df.columns \
                 and 'dtlb_store_misses.miss_causes_a_walk' in self._df.columns:
@@ -54,8 +68,7 @@ class PerformanceStatistics:
         else:
             raise Exception('the data-set has no performance counters for TLB misses!')
 
-    '''
-    def getStlbMisses(self, index=None):
+    def getStlbMisses_completed(self, index=None):
         data_set = self.__getDataSet(index)
         if 'dtlb_load_misses.walk_completed' in self._df.columns \
         and 'dtlb_store_misses.walk_completed' in self._df.columns:
@@ -63,9 +76,8 @@ class PerformanceStatistics:
                     + data_set['dtlb_store_misses.walk_completed']
         else:
             raise Exception('the data-set has no performance counters for STLB misses (dtlb-misses-walk-completed)!')
-    '''
 
-    def getStlbMisses2m(self, index=None):
+    def getStlbMisses2m_completed(self, index=None):
         data_set = self.__getDataSet(index)
         if 'dtlb_load_misses.walk_completed_2m_4m' in self._df.columns \
         and 'dtlb_store_misses.walk_completed_2m_4m' in self._df.columns:
@@ -75,7 +87,7 @@ class PerformanceStatistics:
             return self.getStlbMisses(index)
             #raise Exception('the data-set has no performance counters for STLB misses (for 2MB pages)!')
 
-    def getStlbMisses4k(self, index=None):
+    def getStlbMisses4k_completed(self, index=None):
         data_set = self.__getDataSet(index)
         if 'dtlb_load_misses.walk_completed_4k' in self._df.columns \
         and 'dtlb_store_misses.walk_completed_4k' in self._df.columns:
@@ -186,6 +198,14 @@ class PerformanceStatistics:
             return data_set['cpu-cycles']
         else:
             raise Exception('the data-set has no performance counters for CPU cycles!')
+        return 0
+
+    def getRefCycles(self, index=None):
+        data_set = self.__getDataSet(index)
+        if self._df.columns.contains('ref-cycles'):
+            return data_set['ref-cycles']
+        else:
+            raise Exception('the data-set has no performance counters for ref cycles!')
         return 0
 
     def getDataFrame(self):

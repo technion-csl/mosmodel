@@ -1,0 +1,7 @@
+MODULE_NAME := analysis/bayesian_optimization
+SUBMODULES := 
+
+$(MODULE_NAME)% : BAYESIAN_NUM_OF_REPEATS := $(MOSELECT_NUM_OF_REPEATS)
+
+include $(COMMON_ANALYSIS_MAKEFILE)
+

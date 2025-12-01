@@ -36,12 +36,12 @@ for f in allFiles:
     brk = roundToBase(brk, BASE_PAGE_SIZE)
     anon_mmap = int(max(anon_mmap+20*mb_size, anon_mmap*1.02))
     anon_mmap = roundToBase(anon_mmap, BASE_PAGE_SIZE)
-    data_frame = data_frame.append(pd.DataFrame(
-            [[brk, anon_mmap, file_mmap]], columns=df_cols))
+    pools_df = pd.DataFrame([[brk, anon_mmap, file_mmap]], columns=df_cols)
+    data_frame = pd.concat([data_frame, pools_df])
 
-regions_sum = data_frame.sum(level=0)
+regions_sum = data_frame.groupby(level=0).sum()
 regions_sum.columns = [['brk-sum', 'anon-mmap-sum', 'file-mmap-sum']]
-regions_max = data_frame.max(level=0)
+regions_max = data_frame.groupby(level=0).max()
 regions_max.columns = [['brk-max', 'anon-mmap-max', 'file-mmap-max']]
 
 out_df = regions_sum.merge(regions_max, left_index=True, right_index=True)

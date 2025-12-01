@@ -5,6 +5,7 @@ def round_up(num, to_nearest_num):
     return math.ceil((num / to_nearest_num)) * to_nearest_num
 
 import matplotlib
+matplotlib.use('Agg') #use a non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -13,7 +14,8 @@ def plotModels(df, models, output):
     max_errors_df = pd.DataFrame(columns=['model', 'max-error'])
     for m in models:
         max_error = df[m + error_suffix].abs().max() * 100
-        max_errors_df = max_errors_df.append({'model': m, 'max-error': max_error}, ignore_index=True)
+        new_row = pd.Series({'model': m, 'max-error': max_error})
+        max_errors_df = pd.concat([max_errors_df, new_row.to_frame().T], ignore_index=True)
 
     csv_output = output.replace('.pdf', '.csv')
     if csv_output == output:

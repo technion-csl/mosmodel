@@ -29,6 +29,20 @@ def applyBins(df, pid, tid, bin_width,
     df.loc[file_mask, 'ADDR'] /= bin_width
     df.loc[file_mask, 'PAGE_TYPE'] = 'file'
 
+def normalizePebsAccesses(pebs_df):
+    # filter and eep only brk pool accesses
+    pebs_df = pebs_df[pebs_df['PAGE_TYPE'].str.contains('brk')]
+    if pebs_df.empty:
+        sys.exit('Input file does not contain page accesses information about the brk pool!')
+    pebs_df = pebs_df[['PAGE_NUMBER', 'NUM_ACCESSES']]
+    pebs_df = pebs_df.reset_index()
+
+    # transform NUM_ACCESSES from absolute number to percentage
+    total_access = pebs_df['NUM_ACCESSES'].sum()
+    pebs_df['TLB_COVERAGE'] = pebs_df['NUM_ACCESSES'].mul(100).divide(total_access)
+    pebs_df = pebs_df.sort_values('TLB_COVERAGE', ascending=False)
+    return pebs_df
+
 import argparse
 import sys
 import math
@@ -77,3 +91,7 @@ df_g=df_g.groupby(['PAGE_NUMBER', 'PAGE_TYPE'], sort=False).sum().reset_index()
 df_g.sort_values('NUM_ACCESSES', ascending=False, inplace=True)
 #Write all processes data to single file
 writeDataframeToCsv(df_g, args.output_file)
+
+df=normalizePebsAccesses(df_g)
+writeDataframeToCsv(df, args.output_file+'.normalized')
+

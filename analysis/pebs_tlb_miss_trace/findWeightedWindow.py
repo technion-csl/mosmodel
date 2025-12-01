@@ -60,7 +60,7 @@ def findWeightedWindow(weight):
     max_access_end_page = 1
     weighted_accesses = math.floor(total_access * weight)
     max_sum = 0
-    while l <= r:
+    while l < r:
         mid = math.floor((l+r)/2)
         l_sum = sumAccesses(l, mid)
         r_sum = sumAccesses(mid+1, r)
@@ -68,12 +68,12 @@ def findWeightedWindow(weight):
             #weight, l_sum, r_sum, weighted_accesses, l,r,mid))
         if l_sum <  weighted_accesses and r_sum < weighted_accesses:
             break
-        if l_sum > weighted_accesses and l_sum > r_sum:
+        if l_sum >= weighted_accesses and l_sum > r_sum:
             max_access_start_page = l
             max_access_end_page = mid
             r = mid
             max_sum = l_sum
-        elif r_sum > weighted_accesses:
+        elif r_sum >= weighted_accesses:
             max_access_start_page = mid+1
             max_access_end_page = r
             l = mid+1
@@ -103,7 +103,7 @@ def findWeightedWindow(weight):
     #print(str.format('[DEBUG] [3]: weight = {0} , left = {1} , right = {2}', weight, l, r))
     max_access_start_page = l
     max_access_end_page = r
-    left_weight = sumAccesses(0, l) / total_access
+    left_weight = sumAccesses(0, l-1) / total_access
     right_weight = sumAccesses(r+1, actual_total_pages-1) / total_access
     left_weight = int(left_weight * 100)
     right_weight = int(right_weight * 100)

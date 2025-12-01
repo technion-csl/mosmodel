@@ -1,0 +1,73 @@
+#! /bin/bash
+
+check_variable_is_set() {
+    local variable_name="$1"
+    local variable_value="${!variable_name}"
+
+    if [ -z "$variable_value" ]; then
+    echo "Error: Variable '$variable_name' is not set."
+    exit 1
+    fi
+}
+
+# variables that should be set
+COLLECT_RESULTS_SCRIPT=__COLLECT_RESULTS_SCRIPT__
+EXPERIMENTS_ROOT_DIR=__EXPERIMENTS_ROOT_DIR__
+EXPERIMENT_NAME=__EXPERIMENT_NAME__
+NUM_OF_REPEATS=__NUM_OF_REPEATS__
+NUM_OF_THREADS=__NUM_OF_THREADS__
+RUN_BENCHMARK_SCRIPT=__RUN_BENCHMARK_SCRIPT__
+RUN_BENCHMARK_PREFIX=__RUN_BENCHMARK_PREFIX__
+MEASURE_GENERAL_METRICS_SCRIPT=__MEASURE_GENERAL_METRICS_SCRIPT__
+RUN_MOSALLOC_TOOL=__RUN_MOSALLOC_TOOL__
+MOSALLOC_TOOL=__MOSALLOC_TOOL__
+EXTRA_ARGS_FOR_MOSALLOC=__EXTRA_ARGS_FOR_MOSALLOC__
+BENCHMARK_PATH=__BENCHMARK_PATH__
+LAYOUT_NAME=$1
+
+check_variable_is_set "COLLECT_RESULTS_SCRIPT"
+check_variable_is_set "EXPERIMENTS_ROOT_DIR"
+check_variable_is_set "EXPERIMENT_NAME"
+check_variable_is_set "NUM_OF_REPEATS"
+check_variable_is_set "NUM_OF_THREADS"
+check_variable_is_set "RUN_BENCHMARK_SCRIPT"
+check_variable_is_set "RUN_BENCHMARK_PREFIX"
+check_variable_is_set "MEASURE_GENERAL_METRICS_SCRIPT"
+check_variable_is_set "RUN_MOSALLOC_TOOL"
+check_variable_is_set "MOSALLOC_TOOL"
+check_variable_is_set "BENCHMARK_PATH"
+check_variable_is_set "LAYOUT_NAME"
+
+EXP_RESULTS_DIR=$RESULTS_ROOT_DIR/$EXPERIMENT_NAME
+EXP_ROOT_DIR=$EXPERIMENTS_ROOT_DIR/$EXPERIMENT_NAME
+LAYOUTS_ROOT_DIR=$EXP_ROOT_DIR/layouts
+MOSALLOC_CONFIG_FILE=$LAYOUTS_ROOT_DIR/$LAYOUT_NAME.csv
+OUTPUT_DIR=$EXP_ROOT_DIR/$LAYOUT_NAME
+
+RUN_EXPERIMENT_COMMAND="\
+    ${RUN_BENCHMARK_SCRIPT} --prefix=\"${MEASURE_GENERAL_METRICS_SCRIPT} ${RUN_BENCHMARK_PREFIX}\" \
+    --num_threads=${NUM_OF_THREADS} \
+    --num_repeats=${NUM_OF_REPEATS} \
+    --submit_command=\"${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} --debug\" \
+    --benchmark_dir=${BENCHMARK_PATH} \
+    --output_dir=${OUTPUT_DIR} \
+    --run_dir=${EXPERIMENTS_ROOT_DIR}/run_dir"
+
+RESERVE_HUGEPAGES_DUMMY_COMMAND="${RUN_BENCHMARK_PREFIX} ${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} -- sleep 1"
+
+COLLECT_RESULTS_COMMAND="$COLLECT_RESULTS_SCRIPT --experiments_root=$EXP_ROOT_DIR --repeats=$NUM_OF_REPEATS --output_dir=$EXP_RESULTS_DIR --remove_outliers"
+
+# echo "Collecting results from $EXP_RESULTS_DIR ..."
+# eval "$COLLECT_RESULTS_COMMAND"
+
+echo "===================== Allocating/reserving hugepages ====================="
+eval "$RESERVE_HUGEPAGES_DUMMY_COMMAND"
+wait
+echo "==========================================="
+echo "Running [$EXPERIMENT_NAME] experiment on [$BENCHMARK_PATH] benchmark"
+echo "Command line: [$RUN_EXPERIMENT_COMMAND]"
+echo "==========================================="
+eval "$RUN_EXPERIMENT_COMMAND"
+
+# echo "Collecting results again from $EXP_RESULTS_DIR ..."
+# eval "$COLLECT_RESULTS_COMMAND"

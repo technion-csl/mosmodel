@@ -21,7 +21,10 @@ df = pd.read_csv(args.input_file, index_col='layout')
 x = df[[args.x_metric]]
 y = df[args.metric]
 
+import matplotlib
 import matplotlib.pyplot as plt
+matplotlib.use('Agg') #use a non-interactive backend
+
 fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(4,3))
 ax.scatter(x, y, marker='o', s=10, label='measurements')
 

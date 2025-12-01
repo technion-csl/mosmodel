@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 import random
 import math
+from Utils.utils import *
+from Utils.ConfigurationFile import *
 
 kb = 1024
 mb = 1024*kb
@@ -33,8 +35,11 @@ class LayoutsGenerator:
         self._brk_2mb_footprint = round_up(self._brk_footprint, 2*mb)
         self._mmap_1gb_footprint = round_up(self._mmap_footprint, gb)
         self._brk_1gb_footprint = round_up(self._brk_footprint, gb)
+        self._mmap_pool_size = self._mmap_footprint
+        self._brk_pool_size = self._brk_footprint
 
-    def addLayout(self,
+
+    def addSingleWindowLayout(self,
             brk_start_2m=0, brk_end_2m=0,
             mmap_start_2m=0, mmap_end_2m=0,
             brk_start_1g=0, brk_end_1g=0,
@@ -42,15 +47,38 @@ class LayoutsGenerator:
             add_to_front=False):
         brk_footprint = max(brk_end_2m, brk_end_1g, self._brk_footprint)
         mmap_footprint = max(mmap_end_2m, mmap_end_1g, self._mmap_footprint)
-        layout = '--file_pool_size 1GB --anon_pool_size {aps} --anon_start_2mb {as2} --anon_end_2mb {ae2} --anon_start_1gb {as1} --anon_end_1gb {ae1} --brk_pool_size {bps} --brk_start_2mb {bs2} --brk_end_2mb {be2} --brk_start_1gb {bs1} --brk_end_1gb {be1}'.format(
-                aps=mmap_footprint, as2=mmap_start_2m, ae2=mmap_end_2m,
-                as1=mmap_start_1g, ae1=mmap_end_1g,
-                bps=brk_footprint, bs2=brk_start_2m, be2=brk_end_2m,
-                bs1=brk_start_1g, be1=brk_end_1g)
+        self._mmap_pool_size = max(mmap_footprint, self._mmap_pool_size)
+        self._brk_pool_size = max(brk_footprint, self._brk_pool_size)
+        configuration = Configuration()
+        if brk_start_2m != brk_end_2m:
+            configuration.addWindow(
+                    type=configuration.TYPE_BRK,
+                    page_size=Configuration.HUGE_2MB_PAGE_SIZE,
+                    start_offset=brk_start_2m,
+                    end_offset=brk_end_2m)
+        if brk_start_1g != brk_end_1g:
+            configuration.addWindow(
+                    type=configuration.TYPE_BRK,
+                    page_size=Configuration.HUGE_1GB_PAGE_SIZE,
+                    start_offset=brk_start_1g,
+                    end_offset=brk_end_1g)
+        if mmap_start_2m != mmap_end_2m:
+            configuration.addWindow(
+                    type=configuration.TYPE_MMAP,
+                    page_size=Configuration.HUGE_2MB_PAGE_SIZE,
+                    start_offset=mmap_start_2m,
+                    end_offset=mmap_end_2m)
+        if mmap_start_1g != mmap_end_1g:
+            configuration.addWindow(
+                    type=configuration.TYPE_MMAP,
+                    page_size=Configuration.HUGE_1GB_PAGE_SIZE,
+                    start_offset=mmap_start_1g,
+                    end_offset=mmap_end_1g)
+
         if add_to_front:
-            self._layouts.insert(0, layout)
+            self._layouts.insert(0, configuration)
         else:
-            self._layouts.append(layout)
+            self._layouts.append(configuration)
 
     def buildGrowingWindowLayouts(self, max_1gb_hugepages):
         step = int(math.floor(self._brk_footprint / (self._num_layouts-1)))
@@ -73,7 +101,7 @@ class LayoutsGenerator:
             # reverse layouts list order to enforce running layouts with more
             # huge pages first in growing_window to prevent huge-pages-reservation failures
             # in case of memory fragmentation (and then huge-pages reservation fails)
-            self.addLayout(
+            self.addSingleWindowLayout(
                     brk_start_2m=layout_start_2m, brk_end_2m=layout_end_2m,
                     mmap_start_2m=0, mmap_end_2m=self._mmap_2mb_footprint,
                     brk_start_1g=0, brk_end_1g=end_1g,
@@ -93,7 +121,7 @@ class LayoutsGenerator:
             brk_end_2mb = self._brk_2mb_footprint
             brk_end_1gb = 0
 
-        self.addLayout(
+        self.addSingleWindowLayout(
                 brk_start_2m=brk_start_2mb, brk_end_2m=brk_end_2mb,
                 mmap_start_2m=0, mmap_end_2m=self._mmap_2mb_footprint,
                 brk_start_1g=0, brk_end_1g=brk_end_1gb,
@@ -112,7 +140,7 @@ class LayoutsGenerator:
             random_end_offset = random.randrange(random_start_offset + window_min_size,
                     end_offset, 2*mb)
 
-            self.addLayout(brk_start_2m=random_start_offset, brk_end_2m=random_end_offset)
+            self.addSingleWindowLayout(brk_start_2m=random_start_offset, brk_end_2m=random_end_offset)
 
     def buildSlidingWindowLayouts(self, hot_region_start, hot_region_length):
         standard_page_size = 4*kb
@@ -154,16 +182,19 @@ class LayoutsGenerator:
             page_size = 2*mb
             if self._use_1gb_pages:
                 end_offset = round_up(end_offset, gb)
-                self.addLayout(brk_start_1g=start_offset, brk_end_1g=end_offset)
+                self.addSingleWindowLayout(brk_start_1g=start_offset, brk_end_1g=end_offset)
             else:
-                self.addLayout(brk_start_2m=start_offset, brk_end_2m=end_offset)
+                self.addSingleWindowLayout(brk_start_2m=start_offset, brk_end_2m=end_offset)
             start_offset += step_size
 
     def exportLayouts(self, output):
         i=1
-        with open(output, 'w+') as output_fid:
-            for l in self._layouts:
-                print('layout{i}: {l}'.format(i=i, l=l), file=output_fid)
-                i += 1
+        for l in self._layouts:
+            l.setPoolsSize(
+                    brk_size=self._brk_pool_size,
+                    file_size=1*gb,
+                    mmap_size=self._mmap_pool_size)
+            l.exportToCSV(output, 'layout' + str(i))
+            i += 1
 
 

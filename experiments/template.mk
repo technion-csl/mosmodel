@@ -29,7 +29,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	$$(CSET_SHIELD_PREFIX) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) -- sleep 1
 	echo ========== [INFO] start producing: $$@ ==========
 	$$(RUN_BENCHMARK) \
-		--prefix=$$(CSET_SHIELD_PREFIX) \
+		--prefix="$$(CSET_SHIELD_PREFIX)" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--num_repeats=$$(NUM_OF_REPEATS) \
 		--submit_command "$$(MEASURE_GENERAL_METRICS)  \

@@ -143,9 +143,9 @@ class BenchmarkRun:
         os.chdir(self._run_dir)
         post_run_filename = glob.glob('post*run.sh')
         if post_run_filename == []:
-            post_run_filename = 'validate.sh'
+            post_run_filename = './validate.sh'
         else:
-            post_run_filename = post_run_filename[0]
+            post_run_filename = './' + post_run_filename[0]
         # sleep a bit to let the filesystem recover before running postrun.sh
         time.sleep(5)  # seconds
         subprocess.run(post_run_filename, stdout=self._log_file, stderr=self._log_file, check=True)

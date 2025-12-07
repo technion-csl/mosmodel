@@ -23,7 +23,7 @@ SCRIPTS_ROOT_DIR := $(ROOT_DIR)/scripts
 
 # the following list should preserve a topological ordering, i.e., if module B
 # uses variables defined in module A, than module A should come before module B
-SUBMODULES := analysis slurm experiments
+SUBMODULES := slurm experiments analysis
 
 include benchmark.mk
 include $(ROOT_DIR)/common.mk

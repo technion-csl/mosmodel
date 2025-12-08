@@ -15,7 +15,9 @@
 *.txt
 *.data
 *.pdf
-
+*.log
+*.csv*
+run_dir/
 results
 __pycache__
 *.swp

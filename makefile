@@ -7,7 +7,7 @@ SHELL := /bin/bash
 MODULE_NAME := all
 $(MODULE_NAME):
 
-export ROOT_DIR := $(PWD)
+export ROOT_DIR := $(CURDIR)
 export HOST_NAME := $(shell hostname)
 
 # global auxiliary functions

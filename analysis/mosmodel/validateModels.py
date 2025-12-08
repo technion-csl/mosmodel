@@ -49,7 +49,11 @@ def calculateYanivError(df, yaniv_A, yaniv_B, conf):
     return utility.relativeError(y_true, y_pred)
 
 def print_coefficients(model, features, output_file):
-    poly_features = ['1'] + model['poly'].get_feature_names(features)
+    # Use get_feature_names_out() for scikit-learn >= 1.0, get_feature_names() for older versions
+    try:
+        poly_features = ['1'] + list(model['poly'].get_feature_names_out(features))
+    except AttributeError:
+        poly_features = ['1'] + model['poly'].get_feature_names(features)
     poly_coefficients = [model['linear'].intercept_] + list(model['linear'].coef_)
     poly_df = pd.DataFrame([poly_features, poly_coefficients])
     poly_df.to_csv(output_file, index=False, header=False)

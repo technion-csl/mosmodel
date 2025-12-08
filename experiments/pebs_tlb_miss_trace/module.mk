@@ -13,10 +13,10 @@ PEBS_TLB_MISS_TRACE_OUTPUT := $(PEBS_EXP_OUT_DIR)/perf.data
 
 # For PEBS experiments, perf needs to wrap the entire command, so we can't use SET_TASK_AFFINITY_CMD in the prefix
 ifdef CSET_SHIELD_RUN
-PEBS_PREFIX = $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT)
-PEBS_SUBMIT_CMD = $(SET_TASK_AFFINITY_CMD) $(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)
+PEBS_PREFIX = $(SET_TASK_AFFINITY_CMD) $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) --
+PEBS_SUBMIT_CMD = $(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)
 else
-PEBS_PREFIX = $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) --cpu $(ISOLATED_CPUS)
+PEBS_PREFIX = $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) --cpu $(ISOLATED_CPUS) --
 PEBS_SUBMIT_CMD = $(SET_TASK_AFFINITY_CMD) $(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)
 endif
 
@@ -33,6 +33,10 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--benchmark_dir=$(BENCHMARK_PATH) \
 		--output_dir=$(PEBS_EXP_DIR) \
 		--run_dir=$(EXPERIMENTS_RUN_DIR)
+ifdef CSET_SHIELD_RUN
+	sudo chown -R $(USER):$(shell id -gn) $(PEBS_EXP_OUT_DIR)
+	sudo chmod -R u+rw $(PEBS_EXP_OUT_DIR)
+endif
 
 DELETE_TARGETS := $(addsuffix /delete,$(PEBS_TLB_MISS_TRACE_OUTPUT))
 

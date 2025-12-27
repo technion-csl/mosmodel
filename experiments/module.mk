@@ -116,13 +116,16 @@ CSET_SHIELD_CPUS := $(CSET_SHIELD_CPUS_SCRIPT) $(BOUND_MEMORY_NODE)
 cpuset:
 	$(APT_INSTALL) $@
 	$(CSET_SHIELD_CPUS)
-else
+else ifdef CPU_ISOLATION
 TASKSET_PREFIX=taskset --cpu ${ISOLATED_CPUS} numactl -m ${ISOLATED_MEMORY_NODE}
 export SET_TASK_AFFINITY_CMD := $(TASKSET_PREFIX)
 check_isolation:
 	$(CHECK_ISOLATION)
+else
+SERIAL_RUN = 1
+# Normal running without CPU isolation or CSET shield
+export SET_TASK_AFFINITY_CMD :=
 endif
-
 #### recipes and rules for creating run_and_collect_results.sh script
 
 CUSTOM_RUN_EXPERIMENT_TEMPLATE := $(EXPERIMENTS_ROOT_DIR)/run_benchmark.sh.template

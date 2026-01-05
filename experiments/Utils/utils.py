@@ -373,14 +373,14 @@ class CrossValidation:
         mosmodel = Pipeline([
             ('scale', MaxAbsScaler()),
             ('poly', PolynomialFeatures(degree=degree, include_bias=False)),
-            ('linear', LassoLarsCV(fit_intercept=True, cv=cv_method, eps=1e-4, n_jobs=-1, normalize=False))])
+            ('linear', LassoLarsCV(fit_intercept=True, cv=cv_method, eps=1e-4, n_jobs=-1))])
         return mosmodel
 
     def _getUnshuffledLassoModel(degree):
         mosmodel = Pipeline([
             ('scale', MaxAbsScaler()),
             ('poly', PolynomialFeatures(degree=degree, include_bias=False)),
-            ('linear', LassoLarsCV(fit_intercept=True, eps=1e-4, n_jobs=-1, normalize=False))])
+            ('linear', LassoLarsCV(fit_intercept=True, eps=1e-4, n_jobs=-1))])
         return mosmodel
 
     def getRidgeModel(degree, cv=10):

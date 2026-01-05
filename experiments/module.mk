@@ -22,7 +22,16 @@ SUBMODULES := $(EXPERIMENTS_SUBMODULES)
 RUN_MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/runMosalloc.py
 RESERVE_HUGE_PAGES := $(ROOT_DIR)/mosalloc/reserveHugePages.sh
 MOSALLOC_MAKEFILE := $(ROOT_DIR)/mosalloc/CMakeLists.txt
+
+# Memory allocator selection: GLIBC (default), MALLOC_MINIMAL, or MALLOC_AUTO
+ifdef MALLOC_AUTO
+export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmalloc_auto.so
+else ifdef MALLOC_MINIMAL
+export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmalloc_min.so
+else
+# Default: Use GLIBC-based mosalloc
 export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmosalloc.so
+endif
 
 ##### scripts
 

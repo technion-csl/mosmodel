@@ -8,10 +8,11 @@ set termopt enhanced
 set datafile separator ","
 set xlabel 'table walk overhead'
 set ylabel 'relative runtime'
+set xrange [0:*]
+set yrange [0:*]
 set grid x
 set grid y
 set key inside
-set autoscale
 set size ratio -1
 set xtics rotate by 45 right
 

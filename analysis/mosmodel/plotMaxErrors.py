@@ -31,7 +31,6 @@ def plotModels(df, models, output):
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('max absolute errors [%]')
-    ax.set_title('model max errors - ' + args.plot_title)
     ax.set_xticks(ind)
     #ax.set_xlim(left=-0.5, right=len(models)+0.5)
     ax.set_xticklabels(models, rotation=-30, ha='left')

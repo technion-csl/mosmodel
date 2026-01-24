@@ -23,15 +23,8 @@ RUN_MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/runMosalloc.py
 RESERVE_HUGE_PAGES := $(ROOT_DIR)/mosalloc/reserveHugePages.sh
 MOSALLOC_MAKEFILE := $(ROOT_DIR)/mosalloc/CMakeLists.txt
 
-# Memory allocator selection: GLIBC (default), MALLOC_MINIMAL, or MALLOC_AUTO
-ifdef MALLOC_AUTO
-export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmalloc_auto.so
-else ifdef MALLOC_MINIMAL
-export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmalloc_min.so
-else
-# Default: Use GLIBC-based mosalloc
-export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/src/libmosalloc.so
-endif
+# For now, only use malloc-standalone-automated
+export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/build/src/libmalloc_auto.so
 
 ##### scripts
 
@@ -75,11 +68,16 @@ WARMUP_FORCE_EXECUTION_FILE := $(EXPERIMENTS_WARMUP_DIR)/.force
 
 .PHONY: experiments-prerequisites perf numactl mosalloc test-run-mosalloc-tool cpu_max_perf
 
+MOSALLOC_BUILD_DIR := $(ROOT_DIR)/mosalloc/build
+
+# For now, only build malloc-standalone-automated
+MOSALLOC_CMAKE_OPTS := -DMALLOC_AUTO_ONLY=ON
+
 mosalloc: $(MOSALLOC_TOOL)
 $(MOSALLOC_TOOL): $(MOSALLOC_MAKEFILE)
 	$(APT_INSTALL) cmake libgtest-dev
-	cd $(dir $<)
-	cmake .
+	mkdir -p $(MOSALLOC_BUILD_DIR)
+	cd $(MOSALLOC_BUILD_DIR) && cmake $(MOSALLOC_CMAKE_OPTS) $(ROOT_DIR)/mosalloc && \
 	if [[ $$SKIP_MOSALLOC_TEST == 0 ]]; then \
 		make -j && ctest -VV; \
 	else \

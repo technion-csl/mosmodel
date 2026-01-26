@@ -18,35 +18,23 @@ $(info CSET_SHIELD_RUN = [$(CSET_SHIELD_RUN)])
 $(info ISOLATED_CPUS = [$(ISOLATED_CPUS)])
 $(info SET_TASK_AFFINITY_CMD = [$(SET_TASK_AFFINITY_CMD)])
 $(info ============================)
-ifdef CSET_SHIELD_RUN
-$(info >>> Taking CSET_SHIELD_RUN branch)
-# cset shield wraps perf, which then wraps the benchmark
-PEBS_PREFIX = $(SET_TASK_AFFINITY_CMD) $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) -- $(SET_TASK_AFFINITY_CMD)
-else ifdef CPU_ISOLATION
-$(info >>> Taking CPU_ISOLATION branch)
-PEBS_PREFIX = $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) --cpu $(ISOLATED_CPUS) -- $(SET_TASK_AFFINITY_CMD)
-else
+# ifdef CSET_SHIELD_RUN
+# $(info >>> Taking CSET_SHIELD_RUN branch)
+# # cset shield wraps perf, which then wraps the benchmark
+# PEBS_PREFIX = $(SET_TASK_AFFINITY_CMD) $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) -- $(SET_TASK_AFFINITY_CMD)
+# else ifdef CPU_ISOLATION
+# $(info >>> Taking CPU_ISOLATION branch)
+# PEBS_PREFIX = $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) --cpu $(ISOLATED_CPUS) -- $(SET_TASK_AFFINITY_CMD)
+# else
 $(info >>> Taking SERIAL_RUN branch (no isolation))
 # SERIAL_RUN - no CPU affinity, just perf record
-PEBS_PREFIX = $(SET_TASK_AFFINITY_CMD) $(PERF_MEM_RECORD_CMD) --output=$(ROOT_DIR)/$(PEBS_TLB_MISS_TRACE_OUTPUT) -- $(SET_TASK_AFFINITY_CMD)
-endif 
-$(PEBS_EXP_OUT_DIR): $(PEBS_TLB_MISS_TRACE_OUTPUT)
-$(MODULE_NAME): $(PEBS_TLB_MISS_TRACE_OUTPUT)
+include $(MODULE_NAME)/run_mode.mk
 
-$(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.csv | experiments-prerequisites 
-	$(RUN_BENCHMARK) --force \
-		--prefix="$(PEBS_PREFIX)" \
-		--num_threads=$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
-		--exclude_files=$(notdir $@) \
-		--submit_command="$(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)" \
-		--benchmark_dir=$(BENCHMARK_PATH) \
-		--output_dir=$(PEBS_EXP_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)
-ifdef CSET_SHIELD_RUN
-	sudo chown -R $(USER):$(shell id -gn) $(PEBS_EXP_OUT_DIR)
-	sudo chmod -R u+rw $(PEBS_EXP_OUT_DIR)
-endif
+
+# ifdef CSET_SHIELD_RUN
+# 	sudo chown -R $(USER):$(shell id -gn) $(PEBS_EXP_OUT_DIR)
+# 	sudo chmod -R u+rw $(PEBS_EXP_OUT_DIR)
+# endif
 
 DELETE_TARGETS := $(addsuffix /delete,$(PEBS_TLB_MISS_TRACE_OUTPUT))
 

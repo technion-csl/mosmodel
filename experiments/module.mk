@@ -131,7 +131,7 @@ check_isolation:
 else
 SERIAL_RUN = 1
 # Normal running without CPU isolation or CSET shield
-export SET_TASK_AFFINITY_CMD :=
+export SET_TASK_AFFINITY_CMD := $(SET_CPU_MEMORY_AFFINITY) $(BOUND_MEMORY_NODE)
 endif
 #### recipes and rules for creating run_and_collect_results.sh script
 

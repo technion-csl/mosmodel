@@ -60,18 +60,18 @@ else
 fi
 
 # Check and disable hyper-threading
-echo "Checking hyper-threading status..."
-if [ -f /sys/devices/system/cpu/smt/control ]; then
-    smt_status=$(cat /sys/devices/system/cpu/smt/control)
-    if [ "$smt_status" != "off" ]; then
-        echo "Disabling hyper-threading..."
-        echo off | sudo tee /sys/devices/system/cpu/smt/control
-    else
-        echo "Hyper-threading already disabled"
-    fi
-else
-    echo "SMT control not available on this system"
-fi
+# echo "Checking hyper-threading status..."
+# if [ -f /sys/devices/system/cpu/smt/control ]; then
+#     smt_status=$(cat /sys/devices/system/cpu/smt/control)
+#     if [ "$smt_status" != "off" ]; then
+#         echo "Disabling hyper-threading..."
+#         echo off | sudo tee /sys/devices/system/cpu/smt/control
+#     else
+#         echo "Hyper-threading already disabled"
+#     fi
+# else
+#     echo "SMT control not available on this system"
+# fi
 
 # Check and disable C-states
 echo "Checking C-states..."

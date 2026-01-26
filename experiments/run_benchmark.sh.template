@@ -38,36 +38,72 @@ check_variable_is_set "MOSALLOC_TOOL"
 check_variable_is_set "BENCHMARK_PATH"
 check_variable_is_set "LAYOUT_NAME"
 
-EXP_RESULTS_DIR=$RESULTS_ROOT_DIR/$EXPERIMENT_NAME
 EXP_ROOT_DIR=$EXPERIMENTS_ROOT_DIR/$EXPERIMENT_NAME
 LAYOUTS_ROOT_DIR=$EXP_ROOT_DIR/layouts
 MOSALLOC_CONFIG_FILE=$LAYOUTS_ROOT_DIR/$LAYOUT_NAME.csv
 OUTPUT_DIR=$EXP_ROOT_DIR/$LAYOUT_NAME
 
-RUN_EXPERIMENT_COMMAND="\
-    ${RUN_BENCHMARK_SCRIPT} --prefix=\"${MEASURE_GENERAL_METRICS_SCRIPT} ${RUN_BENCHMARK_PREFIX}\" \
-    --num_threads=${NUM_OF_THREADS} \
-    --num_repeats=${NUM_OF_REPEATS} \
-    --submit_command=\"${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} --debug\" \
-    --benchmark_dir=${BENCHMARK_PATH} \
-    --output_dir=${OUTPUT_DIR} \
-    --run_dir=${EXPERIMENTS_ROOT_DIR}/run_dir"
-
-RESERVE_HUGEPAGES_DUMMY_COMMAND="${RUN_BENCHMARK_PREFIX} ${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} -- sleep 1"
-
-COLLECT_RESULTS_COMMAND="$COLLECT_RESULTS_SCRIPT --experiments_root=$EXP_ROOT_DIR --repeats=$NUM_OF_REPEATS --output_dir=$EXP_RESULTS_DIR --remove_outliers"
-
-# echo "Collecting results from $EXP_RESULTS_DIR ..."
-# eval "$COLLECT_RESULTS_COMMAND"
+AFF_BASE=${RUN_BENCHMARK_PREFIX}
 
 echo "===================== Allocating/reserving hugepages ====================="
-eval "$RESERVE_HUGEPAGES_DUMMY_COMMAND"
+eval "${RUN_BENCHMARK_PREFIX} ${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} -- sleep 1"
 wait
+
 echo "==========================================="
 echo "Running [$EXPERIMENT_NAME] experiment on [$BENCHMARK_PATH] benchmark"
-echo "Command line: [$RUN_EXPERIMENT_COMMAND]"
 echo "==========================================="
-eval "$RUN_EXPERIMENT_COMMAND"
 
-# echo "Collecting results again from $EXP_RESULTS_DIR ..."
-# eval "$COLLECT_RESULTS_COMMAND"
+if [ "$RUN_MODE" = "smt" ]; then
+    check_variable_is_set "BENCHMARK1"
+    check_variable_is_set "BENCHMARK2"
+
+    # Foreground/measured benchmark
+    RUN1_PREFIX="${AFF_BASE} --smt 1"
+    RUN1_CMD="\
+${RUN_BENCHMARK_SCRIPT} \
+  --prefix=\"${RUN1_PREFIX}\" \
+  --submit_command=\"${MEASURE_GENERAL_METRICS_SCRIPT} ${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} --debug\" \
+  --num_threads=${NUM_OF_THREADS} \
+  --num_repeats=${NUM_OF_REPEATS} \
+  --benchmark_dir=${BENCHMARK1} \
+  --output_dir=${OUTPUT_DIR} \
+  --run_dir=${EXPERIMENTS_RUN_DIR}/1"
+
+    # Background contender
+    BG_OUT="${EXPERIMENTS_RUN_DIR}/_smt_bg_out/${LAYOUT_NAME}"
+    RUN2_PREFIX="${AFF_BASE} --smt 2"
+    RUN2_CMD="\
+${RUN_BENCHMARK_SCRIPT} \
+  --prefix=\"${RUN2_PREFIX}\" \
+  --num_threads=${NUM_OF_THREADS} \
+  --num_repeats=${NUM_OF_REPEATS} \
+  --benchmark_dir=${BENCHMARK2} \
+  --output_dir=${BG_OUT} \
+  --run_dir=${EXPERIMENTS_RUN_DIR}/2"
+
+    echo "Command1: $RUN1_CMD"
+    echo "Command2: $RUN2_CMD"
+
+    eval "$RUN1_CMD" &
+    eval "$RUN2_CMD"
+    wait
+
+    rm -rf "${BG_OUT}"
+
+else
+    # ST mode
+    check_variable_is_set "BENCHMARK_PATH"
+
+    RUN_CMD="\
+${RUN_BENCHMARK_SCRIPT} \
+  --prefix=\"${AFF_BASE}\" \
+  --submit_command=\"${MEASURE_GENERAL_METRICS_SCRIPT} ${RUN_MOSALLOC_TOOL} --library ${MOSALLOC_TOOL} --configuration_pools_file ${MOSALLOC_CONFIG_FILE} ${EXTRA_ARGS_FOR_MOSALLOC} --debug\" \
+  --num_threads=${NUM_OF_THREADS} \
+  --num_repeats=${NUM_OF_REPEATS} \
+  --benchmark_dir=${BENCHMARK_PATH} \
+  --output_dir=${OUTPUT_DIR} \
+  --run_dir=${EXPERIMENTS_RUN_DIR}"
+
+    echo "Command: $RUN_CMD"
+    eval "$RUN_CMD"
+fi

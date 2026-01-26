@@ -18,6 +18,10 @@ EXPERIMENTS_MODULE_NAME := $(MODULE_NAME)
 EXPERIMENTS_SUBMODULES := $(addprefix $(EXPERIMENTS_MODULE_NAME)/,$(SUBMODULES))
 SUBMODULES := $(EXPERIMENTS_SUBMODULES)
 
+MAX_PERF ?= 0
+
+CPU_MAX_PERF_STATE_DIR := $(EXPERIMENTS_MODULE_NAME)/sys_state
+CPU_MAX_PERF_STATE_FILE := $(CPU_MAX_PERF_STATE_DIR)/cpu_max_perf.state
 ##### mosalloc paths
 RUN_MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/runMosalloc.py
 RESERVE_HUGE_PAGES := $(ROOT_DIR)/mosalloc/reserveHugePages.sh
@@ -102,7 +106,14 @@ perf:
 	$(APT_INSTALL) "$(PERF_PACKAGES)"
 
 cpu_max_perf:
-	$(SET_CPU_MAX_PERF)
+ifeq ($(MAX_PERF),1)
+	@mkdir -p "$(CPU_MAX_PERF_STATE_DIR)"
+	@"$(SET_CPU_MAX_PERF)" --mode "$(RUN_MODE)" --state "$(CPU_MAX_PERF_STATE_FILE)"
+	@echo "To restore: $(ROOT_DIR)/scripts/restore_cpu_max_perf.sh --state $(CPU_MAX_PERF_STATE_FILE)"
+else
+	@:
+endif
+
 
 numactl:
 	$(APT_INSTALL) $@

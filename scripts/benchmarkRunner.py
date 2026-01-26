@@ -11,6 +11,8 @@ def getCommandLineArguments():
             help='uses this number of threads (for multi-threaded benchmark)')
     parser.add_argument('-r', '--num_repeats', type=int, default=4,
             help='uses this number of repetitions')
+    parser.add_argument('--repeat', type=str, default=None,
+        help='run only one repeat into output_dir/<repeat> (e.g., repeat1). Overrides --num_repeats.')
     parser.add_argument('-s', '--submit_command', type=str, default='',
             help='a command that will prefix running the benchmark, e.g., "perf stat --".')
     parser.add_argument('-c', '--clean_threshold', type=int, default=1024*1024,
@@ -40,8 +42,12 @@ import time
 if __name__ == "__main__":
     args = getCommandLineArguments()
 
-    repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir +'/repeat'+str(i+1) )
-            for i in range(args.num_repeats)]
+    # then replace repeated_runs construction with:
+    if args.repeat is not None:
+        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
+    else:
+        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/repeat' + str(i+1))
+                for i in range(args.num_repeats)]
     # add warmup as a separated run
     warmup_dir = Path(args.run_dir) / 'warmup'
     warmup_force_file = warmup_dir / '.force'

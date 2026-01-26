@@ -46,27 +46,26 @@ export PERF_COMMAND := $(SCRIPTS_ROOT_DIR)/perf_command.txt
 ###### global constants
 
 export EXPERIMENTS_ROOT := $(ROOT_DIR)/$(MODULE_NAME)
-export EXPERIMENTS_TEMPLATE := $(EXPERIMENTS_ROOT)/template.mk
 export EXPERIMENTS_VARS_TEMPLATE := $(EXPERIMENTS_ROOT)/template_vars.mk
+
 NUMBER_OF_SOCKETS := $(shell ls -d /sys/devices/system/node/node*/ | wc -w)
-# export BOUND_MEMORY_NODE := $$(( $(NUMBER_OF_SOCKETS) - 1 ))
-export BOUND_MEMORY_NODE := 0
+export BOUND_MEMORY_NODE := $$(( $(NUMBER_OF_SOCKETS) - 1 ))
 export NUMBER_OF_SOCKETS := $(shell ls -d /sys/devices/system/node/node*/ | wc -w)
 export NUMBER_OF_CORES_PER_SOCKET := $(shell ls -d /sys/devices/system/node/node0/cpu*/ | wc -w)
+
 export EXPERIMENTS_ROOT_DIR := $(ROOT_DIR)/$(MODULE_NAME)
 export EXPERIMENTS_RUN_DIR := $(EXPERIMENTS_ROOT_DIR)/run_dir
 
 NUM_OF_REPEATS ?= $(DEFAULT_NUM_OF_REPEATS)
-NUMBER_OF_THREADS ?= $(NUMBER_OF_CORES_PER_SOCKET)
-export OMP_NUM_THREADS := $(NUMBER_OF_THREADS)
-export OMP_THREAD_LIMIT := $(OMP_NUM_THREADS) 
+# Mode-dependent knobs (EXPERIMENTS_TEMPLATE, NUMBER_OF_THREADS, OMP_*)
+include $(EXPERIMENTS_ROOT)/run_mode_vars.mk
 
-EXPERIMENTS_WARMUP_DIR := $(EXPERIMENTS_RUN_DIR)/warmup
-WARMUP_FORCE_EXECUTION_FILE := $(EXPERIMENTS_WARMUP_DIR)/.force
+WARMUP_FORCE_EXECUTION_FILES := $(foreach d,$(EXPERIMENTS_WARMUP_DIRS),$(d)/.force)
 
 #### recipes and rules for prerequisites
 
 .PHONY: experiments-prerequisites perf numactl mosalloc test-run-mosalloc-tool cpu_max_perf
+
 
 MOSALLOC_BUILD_DIR := $(ROOT_DIR)/mosalloc/build
 
@@ -87,9 +86,9 @@ $(MOSALLOC_TOOL): $(MOSALLOC_MAKEFILE)
 $(MOSALLOC_MAKEFILE):
 	git submodule update --init --progress
 
-experiments-prerequisites: perf numactl mosalloc cpu_max_perf $(PERF_COMMAND) $(WARMUP_FORCE_EXECUTION_FILE)
+experiments-prerequisites: perf numactl mosalloc cpu_max_perf $(PERF_COMMAND) $(WARMUP_FORCE_EXECUTION_FILES)
 
-$(WARMUP_FORCE_EXECUTION_FILE):
+$(WARMUP_FORCE_EXECUTION_FILES):
 	mkdir -p $(dir $@)
 	echo "Creating $@ file to force running warmup before running the first experiment"
 	touch $@

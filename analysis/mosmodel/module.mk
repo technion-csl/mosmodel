@@ -1,63 +1,58 @@
 MODULE_NAME := analysis/mosmodel
-SUBMODULES := train test
-SUBMODULES := $(addprefix $(MODULE_NAME)/,$(SUBMODULES))
 
-MOSMODEL_TEMPLATE_MAKEFILE := $(MODULE_NAME)/template.mk
 
 #************* scripts *************
-VALIDATE_MODELS := $(ROOT_DIR)/$(MODULE_NAME)/validateModels.py
-PLOT_MAX_ERRORS := $(ROOT_DIR)/$(MODULE_NAME)/plotMaxErrors.py
-COLLECT_POLYNOMIAL_COEFFICIENTS := $(ROOT_DIR)/$(MODULE_NAME)/collectPolynomialCoefficients.py
-CROSS_VALIDATE := $(ROOT_DIR)/$(MODULE_NAME)/crossValidateModel.py
 CALCULATE_R_SQUARES := $(ROOT_DIR)/$(MODULE_NAME)/calculateRSquares.py
 
-#************* consts *************
-MAX_ERRORS_PLOT_TITLE := "Max Errors"
-TRAIN_ERRORS_FILE := $(MODULE_NAME)/train_errors.csv
-TEST_ERRORS_FILE := $(MODULE_NAME)/test_errors.csv
-CROSS_VALIDATION_FILE := $(MODULE_NAME)/cross_validation.csv
-POLY_FILE = $(MODULE_NAME)/poly3.csv
-UNIFIED_MEAN_FILE := $(MODULE_NAME)/mean.csv
+# Better names than hardcoding "analysis/mosmodel/template.mk" everywhere
+MOSMODEL_TEMPLATE_MAKEFILE  := $(MODULE_NAME)/template.mk
+MOSMODEL_STRATEGY_MAKEFILE  := $(MODULE_NAME)/strategy_eval.mk
 
-POLY_COEFFICIENTS := $(MODULE_NAME)/poly_coefficients.csv
-MAX_ERRORS_PLOTS := $(MODULE_NAME)/linear_models_max_errors.pdf $(MODULE_NAME)/polynomial_models_max_errors.pdf
+include $(MODULE_NAME)/strategies.mk
 
-MOSMODEL_TRAIN_MEAN_CSV_FILE := $(MODULE_NAME)/train/mean.csv
-MOSMODEL_TEST_MEAN_CSV_FILE := $(MODULE_NAME)/test/mean.csv
+# -------------------------------
+# Auto-generate per-strategy module.mk files
+# -------------------------------
 
-$(MODULE_NAME): $(MAX_ERRORS_PLOTS) $(TRAIN_ERRORS_FILE) $(TEST_ERRORS_FILE) \
-	$(TEST_AVG_ERRORS) $(CROSS_VALIDATION_FILE)
+# Files we will generate
+SUBMODULES := $(MOSMODEL_STRATEGIES) test
+SUBMODULES  := $(foreach s,$(SUBMODULES),$(MODULE_NAME)/$(s))
+MOSMODEL_STRATEGY_TRAIN_MKS := $(foreach s,$(MOSMODEL_STRATEGIES),$(MODULE_NAME)/$(s)/train/module.mk)
+MOSMODEL_STRATEGY_MKS       := $(foreach s,$(MOSMODEL_STRATEGIES),$(MODULE_NAME)/$(s)/module.mk)
+MOSMODEL_AUTOGEN_MKS        := $(MOSMODEL_STRATEGY_TRAIN_MKS) $(MOSMODEL_STRATEGY_MKS)
 
-$(MAX_ERRORS_PLOTS): $(TEST_ERRORS_FILE)
-	$(PLOT_MAX_ERRORS) --errors=$(TEST_ERRORS_FILE) --plot_title=$(MAX_ERRORS_PLOT_TITLE) --output=$(@D)
+.PHONY: $(MODULE_NAME) $(MODULE_NAME)/bootstrap
+$(SUBMODULES) : $(MODULE_NAME)/bootstrap
+$(MODULE_NAME)/bootstrap: $(MOSMODEL_AUTOGEN_MKS)
+$(MODULE_NAME)/bootstrap/clean:
+	rm -rf $(dir $(MOSMODEL_AUTOGEN_MKS))	
 
-$(POLY_COEFFICIENTS):
-	$(COLLECT_POLYNOMIAL_COEFFICIENTS) --output=$@
+# --- rule generator: train/module.mk per strategy ---
+define GEN_TRAIN_MK
+$(MODULE_NAME)/$(1)/train/module.mk: $(MODULE_NAME)/strategies.mk $(MOSMODEL_TEMPLATE_MAKEFILE)
+	mkdir -p $$(dir $$@)
+	@{ \
+		echo 'MODULE_NAME := $(MODULE_NAME)/$(1)/train'; \
+		echo 'SUBMODULES :='; \
+		echo ''; \
+		echo 'MODEL_EXPERIMENTS := $(TRAIN_EXPERIMENTS_$(1))'; \
+		echo 'include $(MOSMODEL_TEMPLATE_MAKEFILE)'; \
+	} > $$@
+endef
+$(foreach s,$(MOSMODEL_STRATEGIES),$(eval $(call GEN_TRAIN_MK,$(s))))
 
-$(TRAIN_ERRORS_FILE): $(MOSMODEL_TRAIN_MEAN_CSV_FILE) $(LINEAR_MODELS_COEFFS)
-	mkdir -p $(dir $@)
-	$(VALIDATE_MODELS) --train_dataset=$(MOSMODEL_TRAIN_MEAN_CSV_FILE) --test_dataset=$(MOSMODEL_TRAIN_MEAN_CSV_FILE) --output=$@ \
-		--coeffs_file=$(LINEAR_MODELS_COEFFS) --poly=/dev/null
-
-$(TEST_ERRORS_FILE): $(MOSMODEL_TEST_MEAN_CSV_FILE) $(MOSMODEL_TRAIN_MEAN_CSV_FILE) $(LINEAR_MODELS_COEFFS)
-	mkdir -p $(dir $@)
-	$(VALIDATE_MODELS) --train_dataset=$(MOSMODEL_TRAIN_MEAN_CSV_FILE) --test_dataset=$(MOSMODEL_TEST_MEAN_CSV_FILE) --output=$@ \
-		--coeffs_file=$(LINEAR_MODELS_COEFFS) --poly=$(POLY_FILE)
-
-$(CROSS_VALIDATION_FILE):$(UNIFIED_MEAN_FILE) 
-	$(CROSS_VALIDATE) --input=$< --output=$@
-
-$(UNIFIED_MEAN_FILE): $(MOSMODEL_TRAIN_MEAN_CSV_FILE) $(MOSMODEL_TEST_MEAN_CSV_FILE)
-	mkdir -p $(dir $@)
-	head -n 1 -q $(MOSMODEL_TRAIN_MEAN_CSV_FILE) > $@
-	tail -n +2 -q $(MOSMODEL_TRAIN_MEAN_CSV_FILE) >> $@
-	tail -n +2 -q $(MOSMODEL_TEST_MEAN_CSV_FILE) >> $@
-
-$(MODULE_NAME)/clean:
-	cd $(dir $@)
-	rm -f *.pdf
-	rm -f *.csv
+# --- rule generator: strategy/module.mk per strategy (train only for now) ---
+define GEN_STRATEGY_MK
+$(MODULE_NAME)/$(1)/module.mk: $(MODULE_NAME)/strategies.mk $(MOSMODEL_STRATEGY_MAKEFILE)
+	mkdir -p $$(dir $$@)
+	@{ \
+		echo 'MODULE_NAME := $(MODULE_NAME)/$(1)'; \
+		echo 'SUBMODULES := train'; \
+		echo 'SUBMODULES := $$$$(addprefix $$$$(MODULE_NAME)/,$$$$(SUBMODULES))'; \
+		echo ''; \
+		echo 'include $(MOSMODEL_STRATEGY_MAKEFILE)'; \
+	} > $$@
+endef
+$(foreach s,$(MOSMODEL_STRATEGIES),$(eval $(call GEN_STRATEGY_MK,$(s))))
 
 include $(ROOT_DIR)/common.mk
-
-

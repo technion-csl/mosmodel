@@ -1,4 +1,5 @@
-
+*.err
+*.cmp
 *.o
 *.a
 *.so
@@ -21,3 +22,6 @@ run_dir/
 results
 __pycache__
 *.swp
+analysis/mosmodel/*/module.mk
+analysis/mosmodel/*/train/module.mk
+

@@ -52,9 +52,9 @@ if __name__ == "__main__":
     warmup_dir = Path(args.run_dir) / 'warmup'
     warmup_force_file = warmup_dir / '.force'
     force_warmup_run = warmup_force_file.exists()
-    if force_warmup_run:
-        warmup_run = BenchmarkRun(args.benchmark_dir, args.run_dir, warmup_dir)
-        repeated_runs = [warmup_run] + repeated_runs
+#     if force_warmup_run:
+#         warmup_run = BenchmarkRun(args.benchmark_dir, args.run_dir, warmup_dir)
+#         repeated_runs = [warmup_run] + repeated_runs
 
     existing_repeat_dirs = 0
     for run in repeated_runs:
@@ -97,9 +97,9 @@ if __name__ == "__main__":
         print('================================================')
 
     # clean warmup '.force' file to skip running it next time
-    if force_warmup_run:
-        warmup_force_file.unlink()
-        print(f'{warmup_force_file} was deleted to skip warmups for next runs')
+#     if force_warmup_run:
+#         warmup_force_file.unlink()
+#         print(f'{warmup_force_file} was deleted to skip warmups for next runs')
 
 
 

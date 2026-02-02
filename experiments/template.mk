@@ -1,13 +1,23 @@
 include $(EXPERIMENTS_VARS_TEMPLATE)
 
+WARMUP_REPEAT := repeat0
+REPEATS_WITH_WARMUP := $(WARMUP_REPEAT) $(REPEATS)
+
+define MEASURE_LAYOUT_REPEATS
+  $(eval __prev :=)
+  $(foreach repeat,$(REPEATS_WITH_WARMUP), \
+    $(eval $(call MEASUREMENTS_template,$(1),$(repeat),$(__prev))) \
+    $(eval __prev := $(repeat)) \
+  )
+endef
+
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites 
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
 	echo ========== [INFO] allocate/reserve hugepages ==========
 	$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
 	echo ========== [INFO] start producing: $$@ ==========
 	$$(RUN_BENCHMARK) \
 		--num_threads=$$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
 		--repeat=$(2) \
 		--submit_command \
 		"$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(MEASURE_GENERAL_METRICS)  \
@@ -64,7 +74,7 @@ ifdef VANILLA_RUN
 $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call VANILLA_template,$(layout),$(repeat)))))
 else 
   ifdef SERIAL_RUN
-  $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call MEASUREMENTS_template,$(layout),$(repeat)))))
+  $(foreach layout,$(LAYOUTS),$(eval $(call MEASURE_LAYOUT_REPEATS,$(layout))))
   else
     ifdef CSET_SHIELD_RUN
     $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call CSET_SHIELD_EXPS_template,$(layout),$(repeat)))))

@@ -9,10 +9,8 @@ def getCommandLineArguments():
             Finally, the script deletes large files (> 1MB) residing in the output directory.')
     parser.add_argument('-n', '--num_threads', type=int, default=4,
             help='uses this number of threads (for multi-threaded benchmark)')
-    parser.add_argument('-r', '--num_repeats', type=int, default=4,
-            help='uses this number of repetitions')
     parser.add_argument('--repeat', type=str, default=None,
-        help='run only one repeat into output_dir/<repeat> (e.g., repeat1). Overrides --num_repeats.')
+        help='run only one repeat into output_dir/<repeat> (e.g., repeat1).')
     parser.add_argument('-s', '--submit_command', type=str, default='',
             help='a command that will prefix running the benchmark, e.g., "perf stat --".')
     parser.add_argument('-c', '--clean_threshold', type=int, default=1024*1024,
@@ -33,6 +31,9 @@ def getCommandLineArguments():
             help='the directory which will be created for running the benchmark for all experiments and layouts')
     parser.add_argument('-out', '--output_dir', type=str, required=True,
             help='the output directory which will be created for saving the output of the benchmark run')
+    parser.add_argument('-l', '--loop_until', type=int, default=None,
+            help='run the benchmark repeatedly until LOOP_UNTIL seconds have passed')
+
     args = parser.parse_args()
     return args
 
@@ -43,19 +44,12 @@ if __name__ == "__main__":
     args = getCommandLineArguments()
 
     # then replace repeated_runs construction with:
-    if args.repeat is not None:
+    if args.loop_until is not None:
+        assert args.repeat is not None, "When using --loop_until, you must also specify --repeat to name the output directory."
         repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
-    else:
-        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/repeat' + str(i+1))
-                for i in range(args.num_repeats)]
-    # add warmup as a separated run
-    warmup_dir = Path(args.run_dir) / 'warmup'
-    warmup_force_file = warmup_dir / '.force'
-    force_warmup_run = warmup_force_file.exists()
-#     if force_warmup_run:
-#         warmup_run = BenchmarkRun(args.benchmark_dir, args.run_dir, warmup_dir)
-#         repeated_runs = [warmup_run] + repeated_runs
-
+    elif args.repeat is not None:
+        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
+    
     existing_repeat_dirs = 0
     for run in repeated_runs:
         if run.doesOutputDirectoryExist():
@@ -78,13 +72,17 @@ if __name__ == "__main__":
         print(f'start producing:\n\t{run._output_dir}')
 
         # sleep for 3 seconds before next run
-        time.sleep(3)
-        p = run.run(args.num_threads, run_cmd)
-        p.check_returncode()
 
-        if args.post_run:
-            print(f'start post-running...')
-            run.postrun()
+        if args.loop_until is not None:
+            run.run_loop_until(args.num_threads, run_cmd, args.loop_until)
+        else:
+            time.sleep(3)
+            p = run.run(args.num_threads, run_cmd)
+            p.check_returncode()
+
+            if args.post_run:
+                print(f'start post-running...')
+                run.postrun()
 
         # move output files to out_dir
         #   (should be done after postrun to allow processing output files
@@ -95,11 +93,6 @@ if __name__ == "__main__":
         run.clean_output_dir(args.clean_threshold, args.exclude_files)
 
         print('================================================')
-
-    # clean warmup '.force' file to skip running it next time
-#     if force_warmup_run:
-#         warmup_force_file.unlink()
-#         print(f'{warmup_force_file} was deleted to skip warmups for next runs')
 
 
 

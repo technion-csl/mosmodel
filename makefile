@@ -19,6 +19,8 @@ define array_to_comma_separated
 $(subst $(space),$(comma),$(strip $1))
 endef
 
+benchmarks_root := /csl/benchmarks/ubuntu20
+export BENCHMARKS_ROOT := $(benchmarks_root)
 SCRIPTS_ROOT_DIR := $(ROOT_DIR)/scripts
 
 # the following list should preserve a topological ordering, i.e., if module B

@@ -64,8 +64,6 @@ NUM_OF_REPEATS ?= $(DEFAULT_NUM_OF_REPEATS)
 # Mode-dependent knobs (EXPERIMENTS_TEMPLATE, NUMBER_OF_THREADS, OMP_*)
 include $(EXPERIMENTS_ROOT)/run_mode_vars.mk
 
-WARMUP_FORCE_EXECUTION_FILES := $(foreach d,$(EXPERIMENTS_WARMUP_DIRS),$(d)/.force)
-
 #### recipes and rules for prerequisites
 
 .PHONY: experiments-prerequisites perf numactl mosalloc test-run-mosalloc-tool cpu_max_perf
@@ -90,12 +88,7 @@ $(MOSALLOC_TOOL): $(MOSALLOC_MAKEFILE)
 $(MOSALLOC_MAKEFILE):
 	git submodule update --init --progress
 
-experiments-prerequisites: perf numactl mosalloc cpu_max_perf $(PERF_COMMAND) $(WARMUP_FORCE_EXECUTION_FILES)
-
-$(WARMUP_FORCE_EXECUTION_FILES):
-	mkdir -p $(dir $@)
-	echo "Creating $@ file to force running warmup before running the first experiment"
-	touch $@
+experiments-prerequisites: perf numactl mosalloc cpu_max_perf $(PERF_COMMAND)
 
 PERF_PACKAGES := linux-tools
 KERNEL_VERSION := $(shell uname -r)

@@ -1,5 +1,3 @@
-include $(EXPERIMENTS_VARS_TEMPLATE)
-
 # --- Sanity checks (top of file) ---
 ifeq ($(strip $(BENCHMARK1)),)
 $(error "===> RUN_MODE=smt but BENCHMARK1 is not set! <===")
@@ -8,36 +6,51 @@ ifeq ($(strip $(BENCHMARK2)),)
 $(error "===> RUN_MODE=smt but BENCHMARK2 is not set! <===")
 endif
 
+include $(EXPERIMENTS_VARS_TEMPLATE)
+
+WARMUP_REPEAT := repeat0
+REPEATS_WITH_WARMUP := $(WARMUP_REPEAT) $(REPEATS)
+
+define MEASURE_LAYOUT_REPEATS
+  $(eval __prev :=)
+  $(foreach r,$(REPEATS_WITH_WARMUP), \
+    $(eval $(call MEASUREMENTS_template,$(1),$(r),$(__prev))) \
+    $(eval __prev := $(r)) \
+  )
+endef
+
 # ---------- Templates ----------
 
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
 	echo ========== [INFO] allocate/reserve hugepages ==========
 	$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
 	echo ========== [INFO] start producing: $$@ ==========
-	
-	$$(RUN_BENCHMARK) \
+	@set -eu; \
+	setsid $$(RUN_BENCHMARK) \
+		--loop_until 999999 \
+		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 2" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
+		--repeat=$(2) \
+		--benchmark_dir=$$(BENCHMARK2) \
+		--output_dir=$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1) \
+		--run_dir=$$(EXPERIMENTS_RUN_DIR)/2 \
+		& pid2=$$$$!; \
+	\
+	setsid $$(RUN_BENCHMARK) \
+		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--submit_command "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS) \
 		$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$$(BENCHMARK1) \
 		--output_dir=$$* \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/1 &
-
-	
-	$$(RUN_BENCHMARK) \
-		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 2" \
-		--num_threads=$$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
-		--repeat=$(2) \
-		--benchmark_dir=$$(BENCHMARK2) \
-		--output_dir=$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1) \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/2; \
-	wait
+		--run_dir=$$(EXPERIMENTS_RUN_DIR)/1; \
+	\
+	kill -KILL -- -$$$$pid2 2>/dev/null || true; \
+	wait $$$$pid2 2>/dev/null || true; \
 	rm -rf "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)"
 endef
+
 
 
 # define CSET_SHIELD_EXPS_template =
@@ -125,7 +138,7 @@ ifdef VANILLA_RUN
 $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call VANILLA_template,$(layout),$(repeat)))))
 else
   ifdef SERIAL_RUN
-  $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call MEASUREMENTS_template,$(layout),$(repeat)))))
+  $(foreach layout,$(LAYOUTS),$(eval $(call MEASURE_LAYOUT_REPEATS,$(layout))))
   else
     ifdef CSET_SHIELD_RUN
     $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call CSET_SHIELD_EXPS_template,$(layout),$(repeat)))))

@@ -12,11 +12,9 @@ SMT_THREADS2 ?= 1
 ifeq ($(RUN_MODE),smt)
   export EXPERIMENTS_TEMPLATE := $(EXPERIMENTS_ROOT)/template_smt.mk
   NUMBER_OF_THREADS ?= $(SMT_THREADS1)
-  EXPERIMENTS_WARMUP_DIRS := $(EXPERIMENTS_RUN_DIR)/1/warmup $(EXPERIMENTS_RUN_DIR)/2/warmup
 else
   export EXPERIMENTS_TEMPLATE := $(EXPERIMENTS_ROOT)/template.mk
   NUMBER_OF_THREADS ?= $(ST_NUMBER_OF_THREADS)
-  EXPERIMENTS_WARMUP_DIRS := $(EXPERIMENTS_RUN_DIR)/warmup
 endif
 
 # Keep current OpenMP export mechanism, but now it becomes mode-aware

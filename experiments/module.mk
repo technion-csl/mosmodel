@@ -28,7 +28,7 @@ RESERVE_HUGE_PAGES := $(ROOT_DIR)/mosalloc/reserveHugePages.sh
 MOSALLOC_MAKEFILE := $(ROOT_DIR)/mosalloc/CMakeLists.txt
 
 # For now, only use malloc-standalone-automated
-export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/build/src/libmalloc_auto.so
+export MOSALLOC_TOOL := $(ROOT_DIR)/mosalloc/build/src/libmosalloc.so
 
 ##### scripts
 

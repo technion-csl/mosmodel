@@ -58,9 +58,9 @@ $(MODULE_NAME)/clean_strategies:
 GENRATORS_TEST_ERRORS := $(foreach s,$(MOSMODEL_STRATEGIES),$(MODULE_NAME)/$(s)/test_errors.csv)
 
 
-$(MOSMODEL_COMPARE): $(PLOT_STRATEGY_COMPARE) $(GENRATORS_TEST_ERRORS)
+$(MOSMODEL_COMPARE): $(GENRATORS_TEST_ERRORS)
 	python3 $(PLOT_STRATEGY_COMPARE) \
-  	--output  $(MOSMODEL_COMPARE) \
-  	--inputs $(foreach s,$(MOSMODEL_STRATEGIES),$(s)=analysis/mosmodel/$(s)/test_errors.csv) \
+	--output $@ \
+	--inputs $(foreach s,$(MOSMODEL_STRATEGIES),$(s)=analysis/mosmodel/$(s)/test_errors.csv)
 
 -include $(ROOT_DIR)/common.mk

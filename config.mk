@@ -1,0 +1,13 @@
+# Mosmodel
+MOSMODEL_STRATEGIES := growing_window_2m paper_all moselect
+MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS := random_window_2m
+
+MOSMODEL_TRAIN_LAYOUT_GENERATORS_growing_window_2m := growing_window_2m
+MOSMODEL_TEST_LAYOUT_GENERATORS_growing_window_2m  := random_window_2m
+
+MOSMODEL_TRAIN_LAYOUT_GENERATORS_paper_all := growing_window_2m random_window_2m sliding_window/window_20 sliding_window/window_40  sliding_window/window_60 sliding_window/window_80 
+MOSMODEL_TEST_LAYOUT_GENERATORS_paper_all  := random_window_2m
+
+MOSMODEL_TRAIN_LAYOUT_GENERATORS_moselect := moselect
+MOSMODEL_TEST_LAYOUT_GENERATORS_moselect  := random_window_2m
+

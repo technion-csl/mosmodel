@@ -23,5 +23,7 @@ results
 __pycache__
 *.swp
 analysis/mosmodel/*/module.mk
+analysis/mosmodel/*/layout_generators.mk
 analysis/mosmodel/*/train/module.mk
+analysis/mosmodel/*/test/module.mk
 

@@ -3,21 +3,40 @@
 # This file holds the rule generators (define blocks) and their instantiations.
 # It assumes the including makefile already defined:
 #   MODULE_NAME, MOSMODEL_STRATEGIES, MOSMODEL_TEMPLATE_MAKEFILE, MOSMODEL_STRATEGY_MAKEFILE
+#
+# Override model from a parent repo by either:
+#   1) setting variables before including analysis/mosmodel/module.mk, or
+#   2) passing MOSMODEL_USER_CONFIG_MK=/abs/path/to/config.mk
+#
+# Supported per-strategy overrides (in config.mk / parent makefile / CLI):
+#   MOSMODEL_STRATEGIES
+#   MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS
+#   MOSMODEL_TRAIN_LAYOUT_GENERATORS_<strategy>
+#   MOSMODEL_TEST_LAYOUT_GENERATORS_<strategy>
 
 # --- rule generator: per-strategy layout-generators file (created once; user-editable) ---
-# Default behavior:
-#   TRAIN_LAYOUT_GENERATORS := <strategy>
-#   TEST_LAYOUT_GENERATORS  := random_window_2m
+# This file is safe to keep under version control or edit locally.
+# It uses ?= so parent/CLI overrides win.
+#
+# Defaults:
+#   train = <strategy>
+#   test  = $(MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS)
+#
+# It also defines convenience aliases TRAIN_LAYOUT_GENERATORS / TEST_LAYOUT_GENERATORS
+# for older templates that expect them.
 define GEN_LAYOUT_GENS_MK
 $(MODULE_NAME)/$(1)/layout_generators.mk:
 	mkdir -p $$(dir $$@)
 	@{ \
-		echo '# Auto-generated defaults. Edit freely.'; \
-		echo '# Train layout generators (space-separated):'; \
-		echo 'TRAIN_LAYOUT_GENERATORS := $(1)'; \
+		echo '# Auto-generated defaults. Edit freely or override from parent/CLI.'; \
+		echo '# Strategy: $(1)'; \
 		echo ''; \
-		echo '# Test layout generators (space-separated):'; \
-		echo 'TEST_LAYOUT_GENERATORS := random_window_2m'; \
+		echo 'MOSMODEL_TRAIN_LAYOUT_GENERATORS_$(1) ?= $(1)'; \
+		echo 'MOSMODEL_TEST_LAYOUT_GENERATORS_$(1)  ?= $$$$(MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS)'; \
+		echo ''; \
+		echo '# Convenience aliases (used by some templates):'; \
+		echo 'TRAIN_LAYOUT_GENERATORS := $$$$(MOSMODEL_TRAIN_LAYOUT_GENERATORS_$(1))'; \
+		echo 'TEST_LAYOUT_GENERATORS  := $$$$(MOSMODEL_TEST_LAYOUT_GENERATORS_$(1))'; \
 	} > $$@
 endef
 $(foreach s,$(MOSMODEL_STRATEGIES),$(eval $(call GEN_LAYOUT_GENS_MK,$(s))))
@@ -65,4 +84,3 @@ $(MODULE_NAME)/$(1)/module.mk: $(MODULE_NAME)/strategies.mk $(MOSMODEL_STRATEGY_
 	} > $$@
 endef
 $(foreach s,$(MOSMODEL_STRATEGIES),$(eval $(call GEN_STRATEGY_MK,$(s))))
-

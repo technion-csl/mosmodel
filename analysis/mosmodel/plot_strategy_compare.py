@@ -29,19 +29,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--output", required=True)
     ap.add_argument(
-        "--test_generators",
-        nargs="+",
-        required=True,
-        help="List of layout generators used for the test set (e.g., random_window_2m sliding_window/window_20 ...)",
-    )
-    ap.add_argument(
         "--inputs",
         nargs="+",
         required=True,
         help="Pairs: strategy_name=path/to/test_errors.csv",
     )
     ap.add_argument("--models", nargs="+", default=["mosmodel", "poly1", "poly2", "poly3"])
-    ap.add_argument("--percent", action="store_true", help="multiply errors by 100")
     args = ap.parse_args()
 
     models = [normalize_model_name(m) for m in args.models]
@@ -60,8 +53,7 @@ def main():
             if col not in df.columns:
                 raise SystemExit(f"{path}: missing column {col}. Columns={list(df.columns)}")
             max_abs = df[col].abs().max()
-            if args.percent:
-                max_abs *= 100.0
+            max_abs *= 100.0
             rows.append({"strategy": strat, "model": m, "max_error": float(max_abs)})
 
     out = pd.DataFrame(rows)
@@ -86,11 +78,8 @@ def main():
             ys.append(float(v.iloc[0]) if len(v) else float("nan"))
         ax.plot(x, ys, marker="o", label=m)
 
-    ax.set_ylabel("Max absolute error [%]" if args.percent else "Max absolute error")
-    short_list = [short_gen(x) for x in args.test_generators]
-    title = "Test layouts: " + ", ".join(short_list)
+    ax.set_ylabel("Max absolute error [%]")
  
-    ax.set_title(title)
     ax.legend()
     fig.tight_layout()
 

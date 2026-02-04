@@ -28,25 +28,35 @@ $(MODULE_NAME): $(PEBS_TLB_MISS_TRACE_OUTPUT)
 ifeq ($(RUN_MODE),smt)
 
 $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.csv | experiments-prerequisites
-	$(RUN_BENCHMARK) --force \
+	@set -eu; \
+	setsid $(RUN_BENCHMARK) --force \
+		--loop_until 999999 \
+		--repeat=repeat1 \
 		--prefix="$(SET_TASK_AFFINITY_CMD_2)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
 		--benchmark_dir=$(BENCHMARK2) \
 		--output_dir=$(PEBS_BG_OUT_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)/2 & \
-	\
-	$(RUN_BENCHMARK) --force \
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/2 \
+		& pid2=$$!; \
+	sid2=$$(ps -o sid= -p $$pid2 | tr -d ' '); \
+	cleanup() { \
+		pkill -KILL -s $$sid2 2>/dev/null || true; \
+		wait $$pid2 2>/dev/null || true; \
+		rm -rf "$(PEBS_BG_OUT_DIR)/repeat1" 2>/dev/null || true; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	rc=0; \
+	setsid $(RUN_BENCHMARK) --force \
+		--repeat=repeat1 \
 		--prefix="$(PEBS_PREFIX_1)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
 		--exclude_files=$(notdir $@) \
 		--submit_command="$(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)" \
 		--benchmark_dir=$(BENCHMARK1) \
 		--output_dir=$(PEBS_EXP_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)/1; \
-	wait; \
-	rm -rf "$(PEBS_BG_OUT_DIR)/repeat1"
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/1 \
+		|| rc=$$?; \
+	exit $$rc
 
 else  # RUN_MODE=st
 
@@ -54,7 +64,7 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 	$(RUN_BENCHMARK) --force \
 		--prefix="$(PEBS_PREFIX_1)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
-		--num_repeats=1 \
+		--repeat=1 \
 		--exclude_files=$(notdir $@) \
 		--submit_command="$(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)" \
 		--benchmark_dir=$(BENCHMARK_PATH) \

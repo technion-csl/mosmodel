@@ -71,12 +71,10 @@ if __name__ == "__main__":
         print('================================================')
         print(f'start producing:\n\t{run._output_dir}')
 
-        # sleep for 3 seconds before next run
 
         if args.loop_until is not None:
             run.run_loop_until(args.num_threads, run_cmd, args.loop_until)
         else:
-            time.sleep(3)
             p = run.run(args.num_threads, run_cmd)
             p.check_returncode()
 

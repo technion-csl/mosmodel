@@ -2,7 +2,7 @@ MODULE_NAME := analysis/mosmodel/test
 SUBMODULES :=
 
 # how many layouts to sample for testing:
-TEST_LAYOUTS_N ?= 20
+TEST_LAYOUTS_N ?= 200
 TEST_LAYOUTS_SEED ?= 1
 TEST_LAYOUTS_MODE ?= moselect_plus_uniform
 
@@ -16,10 +16,10 @@ include $(MOSMODEL_TEMPLATE_MAKEFILE)
 #   MODEL_MEAN_CSV_FILES := results/<exp>/mean.csv ...
 # so we reuse those.
 
-$(MEAN_CSV_FILE): $(MODEL_MEAN_CSV_FILES) $(MOSMODEL_ROOT)/select_test_layouts.py
+$(MEAN_CSV_FILE): $(addprefix results/,$(addsuffix /mean.csv,$(MODEL_EXPERIMENTS))) 
 	python3 $(MOSMODEL_ROOT)/select_test_layouts.py \
-		--inputs $(MODEL_MEAN_CSV_FILES) \
+		--inputs $^  \
 		--output $@ \
-		--num_total $(TEST_LAYOUTS_N) \
 		--seed $(TEST_LAYOUTS_SEED) \
-		--mode $(TEST_LAYOUTS_MODE)
+		--mode $(TEST_LAYOUTS_MODE) \
+		--all_layouts

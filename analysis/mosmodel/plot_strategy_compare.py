@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from typing import List
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -33,13 +34,6 @@ def main():
         required=True,
         help="List of layout generators used for the test set (e.g., random_window_2m sliding_window/window_20 ...)",
     )
-
-    ap.add_argument(
-        "--order",
-        nargs="+",
-        default=["growing_window_2m", "sliding_window", "paper_all", "moselect"],
-        help="strategy order on x-axis",
-    )
     ap.add_argument(
         "--inputs",
         nargs="+",
@@ -52,9 +46,12 @@ def main():
 
     models = [normalize_model_name(m) for m in args.models]
     rows = []
+    strategies_in_order: List[str] = []
 
     for item in args.inputs:
         strat, path = item.split("=", 1)
+        if strat not in strategies_in_order:
+           strategies_in_order.append(strat)
         df = pd.read_csv(path)
 
         # Wide format expected: columns like poly1_error, poly2_error, poly3_error, mosmodel_error
@@ -74,7 +71,7 @@ def main():
     # One value per (strategy, model)
     out = out.groupby(["strategy", "model"], as_index=False)["max_error"].max()
 
-    order = args.order
+    order = strategies_in_order
     fig = plt.figure(figsize=(10, 4))
     ax = fig.add_subplot(1, 1, 1)
 

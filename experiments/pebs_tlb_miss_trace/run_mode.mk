@@ -44,9 +44,10 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		wait $$pid2 2>/dev/null || true; \
 		rm -rf "$(PEBS_BG_OUT_DIR)/repeat1" 2>/dev/null || true; \
 	}; \
-	trap cleanup EXIT INT TERM; \
+	trap cleanup EXIT; \
+	trap 'cleanup; exit 130' INT TERM; \
 	rc=0; \
-	setsid $(RUN_BENCHMARK) --force \
+	$(RUN_BENCHMARK) --force \
 		--repeat=repeat1 \
 		--prefix="$(PEBS_PREFIX_1)" \
 		--num_threads=$(NUMBER_OF_THREADS) \

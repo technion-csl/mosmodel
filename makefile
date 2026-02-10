@@ -28,6 +28,7 @@ SCRIPTS_ROOT_DIR := $(ROOT_DIR)/scripts
 SUBMODULES := slurm experiments analysis
 
 include benchmark.mk
+include config.mk
 include $(ROOT_DIR)/common.mk
 
 # a top-level "clean" target, which calls all/clean

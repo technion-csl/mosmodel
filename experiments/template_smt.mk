@@ -42,9 +42,10 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		wait $$$$pid2 2>/dev/null || true; \
 		rm -rf "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)" 2>/dev/null || true; \
 	}; \
-	trap cleanup EXIT INT TERM; \
+	trap cleanup EXIT; \
+	trap 'cleanup; exit 130' INT TERM; \
 	rc=0; \
-	setsid $$(RUN_BENCHMARK) \
+	$$(RUN_BENCHMARK) \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--submit_command "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS) \

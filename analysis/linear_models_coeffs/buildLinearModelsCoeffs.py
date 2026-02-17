@@ -15,7 +15,7 @@ def loadDataframe(mean_file):
     mean_df['cpu-cycles'] = mean_ps.getRuntime()
     mean_df['stlb_hits'] = mean_ps.getStlbHits()
     mean_df['stlb_misses'] = mean_ps.getStlbMisses()
-    df = mean_df[['walk_cycles', 'stlb_hits', 'stlb_misses', 'cpu-cycles']]
+    df = mean_df[['walk_cycles', 'stlb_hits', 'stlb_misses', 'cpu-cycles', 'instructions']]
 
     return df
 
@@ -67,10 +67,10 @@ def calculateGandhiCoeffs(df_2mb, df_4kb):
     return A, B
 
 def calculateYanivCoeffs(df_4kb, df_2mb):
-    delta_y = df_4kb['cpu-cycles'] - df_2mb['cpu-cycles']
-    delta_x = df_4kb['walk_cycles'] - df_2mb['walk_cycles']
+    delta_y = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - (df_2mb['cpu-cycles'] / df_2mb['instructions'])
+    delta_x = 1000 * ((df_4kb['stlb_misses'] / df_4kb['instructions']) - (df_2mb['stlb_misses'] / df_2mb['instructions']))
     A = delta_y / delta_x
-    B = df_4kb['cpu-cycles'] - A * df_4kb['walk_cycles']
+    B = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - A * 1000 * (df_4kb['stlb_misses'] / df_4kb['instructions'])
     return A,B
 
 import argparse

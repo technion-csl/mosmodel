@@ -1,6 +1,5 @@
 # List of strategies to compare (parent can override)
 MOSMODEL_STRATEGIES ?= \
-	growing_window_2m \
 	moselect
 
 # Default common test generator(s) (parent can override)

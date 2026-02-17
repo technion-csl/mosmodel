@@ -1,5 +1,5 @@
 # Mosmodel
-MOSMODEL_STRATEGIES := growing_window_2m paper_all moselect
+MOSMODEL_STRATEGIES := moselect
 MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS := random_window_2m
 
 MOSMODEL_TRAIN_LAYOUT_GENERATORS_growing_window_2m := growing_window_2m

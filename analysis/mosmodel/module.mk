@@ -49,6 +49,7 @@ $(MODULE_NAME)/clean:
 	# Delete per-strategy train/test dirs, but keep the per-strategy layout_generators.mk files.
 	rm -rf $(sort $(dir $(MOSMODEL_STRATEGY_TRAIN_MKS) $(MOSMODEL_STRATEGY_TEST_MKS)))
 	rm -f  $(foreach s,$(MOSMODEL_STRATEGIES_DIRS),$(s)/*.csv) $(foreach s,$(MOSMODEL_STRATEGIES_DIRS),$(s)/*.pdf)
+	rm -f $(MOSMODEL_STRATEGY_LAYOUT_MKS) $(MOSMODEL_STRATEGY_MKS)
 	rm -f $(MOSMODEL_COMPARE)
 	
 $(MODULE_NAME)/clean_strategies:

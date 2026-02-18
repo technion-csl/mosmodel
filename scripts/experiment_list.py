@@ -13,16 +13,20 @@ class ExperimentList:
                 for layout in layouts]
         self._index_label = 'layout'
 
-    def collect(self, repeat):
+    def collect(self, repeat, instruction_count=None):
         dataframe_list = []
         for experiment in self._experiments:
             try:
-                df = experiment.collect(repeat)
-            except:
-                raise ValueError('Could not collect the results of ' + \
-                        str(experiment))
+                if instruction_count is None:
+                    df = experiment.collect(repeat)
+                else:
+                    df = experiment.collect_interpolated(repeat, instruction_count)
+            except Exception:
+                raise ValueError('Could not collect the results of ' + str(experiment))
+                
             df.index = [experiment._layout]
             dataframe_list.append(df)
+            
         df = pd.concat(dataframe_list, sort=False)
         df.index.name = self._index_label
         return df

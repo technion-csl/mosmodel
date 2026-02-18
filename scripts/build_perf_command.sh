@@ -13,7 +13,7 @@ general_events="context-switches,page-faults,minor-faults,major-faults,ref-cycle
 #general_events+=",L1-dcache-loads,L1-dcache-stores,L1-dcache-load-misses,L1-dcache-store-misses"
 #general_events+=",LLC-loads,LLC-stores,LLC-load-misses,LLC-store-misses"
 
-prefix_perf_command="perf stat --field-separator=, --output=\${MOSMODEL_RUN_OUT_DIR}/perf.out"
+prefix_perf_command="perf stat --interval-print=1000 --field-separator=, --output=\${MOSMODEL_RUN_OUT_DIR}/perf.out"
 # extract architecture specific dtlb events from 'perf list'
 dtlb_events=`perf list | \grep -o "dtlb_.*_misses\.\w*" | \grep -v "[124][gmk]" | sort -u | tr '\n' ','`
 dtlb_events=${dtlb_events%?} # remove the trailing , charachter

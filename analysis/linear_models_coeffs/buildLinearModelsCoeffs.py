@@ -66,11 +66,18 @@ def calculateGandhiCoeffs(df_2mb, df_4kb):
     A = df_4kb['walk_cycles'] / df_4kb['stlb_misses']
     return A, B
 
+# def calculateYanivCoeffs(df_4kb, df_2mb):
+#     delta_y = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - (df_2mb['cpu-cycles'] / df_2mb['instructions'])
+#     delta_x = 1000 * ((df_4kb['stlb_misses'] / df_4kb['instructions']) - (df_2mb['stlb_misses'] / df_2mb['instructions']))
+#     A = delta_y / delta_x
+#     B = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - A * 1000 * (df_4kb['stlb_misses'] / df_4kb['instructions'])
+#     return A,B
+
 def calculateYanivCoeffs(df_4kb, df_2mb):
-    delta_y = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - (df_2mb['cpu-cycles'] / df_2mb['instructions'])
-    delta_x = 1000 * ((df_4kb['stlb_misses'] / df_4kb['instructions']) - (df_2mb['stlb_misses'] / df_2mb['instructions']))
+    delta_y = df_4kb['cpu-cycles'] - df_2mb['cpu-cycles']
+    delta_x = df_4kb['walk_cycles'] - df_2mb['walk_cycles']
     A = delta_y / delta_x
-    B = (df_4kb['cpu-cycles'] / df_4kb['instructions']) - A * 1000 * (df_4kb['stlb_misses'] / df_4kb['instructions'])
+    B = df_4kb['cpu-cycles'] - A * df_4kb['walk_cycles']
     return A,B
 
 import argparse

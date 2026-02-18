@@ -30,7 +30,7 @@ ifeq ($(RUN_MODE),smt)
 $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.csv | experiments-prerequisites
 	@set -eu; \
 	setsid $(RUN_BENCHMARK) --force \
-		--loop_until 999999 \
+		--loop_until $(MEASURE_TIMEOUT) \
 		--repeat=repeat1 \
 		--prefix="$(SET_TASK_AFFINITY_CMD_2)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
@@ -39,15 +39,22 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--run_dir=$(EXPERIMENTS_RUN_DIR)/2 \
 		& pid2=$$!; \
 	sid2=$$(ps -o sid= -p $$pid2 | tr -d ' '); \
-	cleanup() { \
+	\
+	cleanup_bg(){ \
 		pkill -KILL -s $$sid2 2>/dev/null || true; \
 		wait $$pid2 2>/dev/null || true; \
 		rm -rf "$(PEBS_BG_OUT_DIR)/repeat1" 2>/dev/null || true; \
 	}; \
-	trap cleanup EXIT; \
-	trap 'cleanup; exit 130' INT TERM; \
-	rc=0; \
-	$(RUN_BENCHMARK) --force \
+	cleanup_all(){ \
+		pkill -KILL -s $$sid1 2>/dev/null || true; \
+		wait $$pid1 2>/dev/null || true; \
+		cleanup_bg; \
+	}; \
+	trap cleanup_bg EXIT; \
+	trap 'cleanup_all; exit 130' INT TERM; \
+	\
+	setsid $(RUN_BENCHMARK) --force \
+		--loop_until $(MEASURE_TIMEOUT) \
 		--repeat=repeat1 \
 		--prefix="$(PEBS_PREFIX_1)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
@@ -56,9 +63,12 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--benchmark_dir=$(BENCHMARK1) \
 		--output_dir=$(PEBS_EXP_DIR) \
 		--run_dir=$(EXPERIMENTS_RUN_DIR)/1 \
-		|| rc=$$?; \
+		& pid1=$$!; \
+	sid1=$$(ps -o sid= -p $$pid1 | tr -d ' '); \
+	\
+	wait $$pid1; rc=$$?; \
+	cleanup_bg; \
 	exit $$rc
-
 else  # RUN_MODE=st
 
 $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.csv | experiments-prerequisites

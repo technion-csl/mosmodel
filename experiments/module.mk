@@ -60,6 +60,8 @@ export NUMBER_OF_CORES_PER_SOCKET := $(shell ls -d /sys/devices/system/node/node
 export EXPERIMENTS_ROOT_DIR := $(ROOT_DIR)/$(MODULE_NAME)
 export EXPERIMENTS_RUN_DIR := $(EXPERIMENTS_ROOT_DIR)/run_dir
 
+MEASURE_TIMEOUT := 60
+
 NUM_OF_REPEATS ?= $(DEFAULT_NUM_OF_REPEATS)
 # Mode-dependent knobs (EXPERIMENTS_TEMPLATE, NUMBER_OF_THREADS, OMP_*)
 include $(EXPERIMENTS_ROOT)/run_mode_vars.mk
@@ -170,6 +172,13 @@ $(CUSTOM_RUN_EXPERIMENT_SCRIPT): $(CUSTOM_RUN_EXPERIMENT_TEMPLATE)
 	sed -i "s,__EXTRA_ARGS_FOR_MOSALLOC__,$(EXTRA_ARGS_FOR_MOSALLOC),g" $@
 	sed -i "s,__BENCHMARK_PATH__,$(BENCHMARK_PATH),g" $@
 	chmod 755 $@
+
+#### calculating the total number of instructions
+
+INSTRUCTION_COUNT_FILE := $(MODULE_NAME)/instruction_count.csv
+
+$(INSTRUCTION_COUNT_FILE): | experiments/single_page_size/layout4kb
+	$(SCRIPTS_ROOT_DIR)/countInstructions.py $| > $@
 
 #### recipes and rules for calculating the benchmark memory footprint
 

@@ -1,11 +1,28 @@
 #! /usr/bin/env python3
 
 import sys
+import os
 import pandas as pd
 from experiment_list import ExperimentList
 
 def writeDataframeToCsv(df, file_name):
     df.to_csv(file_name, na_rep='NaN')
+
+def parse_instruction_count(arg):
+    """Parse --instruction_count value.
+
+    Accepts:
+      - Path to a file whose first line is a number
+      - A numeric literal (e.g., 3.2e11)
+    """
+    if arg is None:
+        return None
+    # If it looks like a path and exists, treat as file
+    if os.path.exists(arg):
+        with open(arg, 'r') as f:
+            return float(next(f).strip())
+    # Otherwise treat as number
+    return float(arg)
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -22,12 +39,23 @@ parser.add_argument('-s', '--skip_outliers', action='store_true',
                     help='if specified, then will skip validating outliers existance')
 parser.add_argument('-o', '--output_dir', required=True,
                     help='the directory for all output files')
+parser.add_argument(
+    '-i',
+    '--instruction_count',
+    default=None,
+    help='if specified, enable interpolation mode: sample metrics at the time when cumulative instructions reaches this target (number or path to file)',
+)
 args = parser.parse_args()
 
 if args.remove_outliers and args.skip_outliers:
     sys.exit('Error: either --skip_outliers or --remove_outliers should be used')
 
-import os
+instruction_count = None
+try:
+    instruction_count = parse_instruction_count(args.instruction_count)
+except Exception as e:
+    sys.exit(f'Error: could not parse --instruction_count: {e}')
+
 layout_list = []
 if args.layouts == None:
     for f in os.scandir(args.experiments_root):
@@ -55,7 +83,7 @@ output_dir = args.output_dir + '/'
 dataframe_list = []
 for repeat in range(1, args.repeats+1):
     experiment_list = ExperimentList(layout_list, args.experiments_root)
-    df = experiment_list.collect(repeat)
+    df = experiment_list.collect(repeat, instruction_count=instruction_count)
     csv_file_name = 'repeat' + str(repeat) + '.csv'
     if len(layout_list) > 1:
         writeDataframeToCsv(df, output_dir + csv_file_name)
@@ -69,6 +97,7 @@ median_df = df.groupby(df.index).median()
 std_df = df.groupby(df.index).std()
 
 import datetime
+
 # detect outliers
 index_column = mean_df.index
 interesting_metrics = ['seconds-elapsed', 'ref-cycles', 'cpu-cycles']
@@ -76,6 +105,7 @@ interesting_metrics = [metric for metric in interesting_metrics if metric in mea
 variation = std_df[interesting_metrics] / mean_df[interesting_metrics]
 outlier_threshold = 0.02
 outliers = variation > outlier_threshold
+
 if not args.skip_outliers:
     if outliers.any().any():
         print("Error: the results in", args.experiments_root, "showed considerable variation")

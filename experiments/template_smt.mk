@@ -28,7 +28,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	echo ========== [INFO] start producing: $$@ ==========
 	@set -eu; \
 	setsid $$(RUN_BENCHMARK) \
-		--loop_until 999999 \
+		--loop_until $$(MEASURE_TIMEOUT) \
 		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 2" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
@@ -37,15 +37,22 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--run_dir=$$(EXPERIMENTS_RUN_DIR)/2 \
 		& pid2=$$$$!; \
 	sid2=$$$$(ps -o sid= -p $$$$pid2 | tr -d ' '); \
-	cleanup(){ \
+	\
+	cleanup_bg(){ \
 		pkill -KILL -s $$$$sid2 2>/dev/null || true; \
 		wait $$$$pid2 2>/dev/null || true; \
 		rm -rf "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)" 2>/dev/null || true; \
 	}; \
-	trap cleanup EXIT; \
-	trap 'cleanup; exit 130' INT TERM; \
-	rc=0; \
-	$$(RUN_BENCHMARK) \
+	cleanup_all(){ \
+		pkill -KILL -s $$$$sid1 2>/dev/null || true; \
+		wait $$$$pid1 2>/dev/null || true; \
+		cleanup_bg; \
+	}; \
+	trap cleanup_bg EXIT; \
+	trap 'cleanup_all; exit 130' INT TERM; \
+	\
+	setsid $$(RUN_BENCHMARK) \
+		--loop_until $$(MEASURE_TIMEOUT) \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--submit_command "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS) \
@@ -53,7 +60,11 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--benchmark_dir=$$(BENCHMARK1) \
 		--output_dir=$$* \
 		--run_dir=$$(EXPERIMENTS_RUN_DIR)/1 \
-		|| rc=$$$$?; \
+		& pid1=$$$$!; \
+	sid1=$$$$(ps -o sid= -p $$$$pid1 | tr -d ' '); \
+	\
+	wait $$$$pid1; rc=$$$$?; \
+	cleanup_bg; \
 	exit $$$$rc
 endef
 

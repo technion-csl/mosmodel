@@ -67,19 +67,21 @@ class Configuration:
 
 
     def exportToCSV(self, abs_path, layout_name):
-        df = pd.DataFrame(self.config, index=None)
-        # rearrange columns
-        df = df[[Configuration.TYPE, Configuration.PAGE_SIZE,
-                 Configuration.START_OFFSET, Configuration.END_OFFSET]]
-        windows = df[df[Configuration.PAGE_SIZE] == Configuration.POOL_SIZE_FLAG]
-        brk_2mb_window = Configuration.mergeAdjacentWindows(df, Configuration.TYPE_BRK, Configuration.HUGE_2MB_PAGE_SIZE)
-        windows = pd.concat([windows, brk_2mb_window])
-        brk_1gb_window = Configuration.mergeAdjacentWindows(df, Configuration.TYPE_BRK, Configuration.HUGE_1GB_PAGE_SIZE)
-        windows = pd.concat([windows, brk_1gb_window])
+        df = pd.DataFrame(self.config, index=None,
+                columns=[Configuration.TYPE, Configuration.PAGE_SIZE, Configuration.START_OFFSET, Configuration.END_OFFSET])
+        #windows = df[df[Configuration.PAGE_SIZE] == Configuration.POOL_SIZE_FLAG]
+        #configurations_2mb = Configuration.mergeAdjacentWindows(df, Configuration.TYPE_BRK, Configuration.HUGE_2MB_PAGE_SIZE)
+        #windows = pd.concat([windows, configurations_2mb])
+        #configurations_1gb = Configuration.mergeAdjacentWindows(df, Configuration.TYPE_BRK, Configuration.HUGE_1GB_PAGE_SIZE)
+        #windows = pd.concat([windows, configurations_1gb])
+        #windows = windows.append(Configuration.mergeAdjacentWindows(df, Configuration.TYPE_MMAP, Configuration.HUGE_2MB_PAGE_SIZE))
+        #windows = windows.append(Configuration.mergeAdjacentWindows(df, Configuration.TYPE_MMAP, Configuration.HUGE_1GB_PAGE_SIZE))
+        #df = pd.DataFrame(windows, index=None)
         path = os.path.join(abs_path, Configuration.LAYOUT_DIRECTORY)
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
         export_file_name = os.path.join(path, layout_name + ".csv")
-        windows.to_csv(export_file_name, index=None)
+        #windows.to_csv(export_file_name, index=None)
+        df.to_csv(export_file_name, index=None)
 
 

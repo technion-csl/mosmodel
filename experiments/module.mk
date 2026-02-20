@@ -64,6 +64,9 @@ MEASURE_TIMEOUT ?= 600
 
 NUM_OF_REPEATS ?= $(DEFAULT_NUM_OF_REPEATS)
 # Mode-dependent knobs (EXPERIMENTS_TEMPLATE, NUMBER_OF_THREADS, OMP_*)
+# Keep current OpenMP export mechanism, but now it becomes mode-aware
+NUMBER_OF_THREADS := 1
+
 include $(EXPERIMENTS_ROOT)/run_mode_vars.mk
 
 #### recipes and rules for prerequisites

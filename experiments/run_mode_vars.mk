@@ -17,7 +17,3 @@ else
   NUMBER_OF_THREADS ?= $(ST_NUMBER_OF_THREADS)
 endif
 
-# Keep current OpenMP export mechanism, but now it becomes mode-aware
-export OMP_NUM_THREADS := $(NUMBER_OF_THREADS)
-export OMP_THREAD_LIMIT := $(OMP_NUM_THREADS)
-

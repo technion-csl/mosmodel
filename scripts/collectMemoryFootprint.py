@@ -24,7 +24,7 @@ BASE_PAGE_SIZE = 4096
 # file-mmap, <file-mmap-max-size>
 data_frame = pd.DataFrame(columns=['brk', 'anon-mmap', 'file-mmap'])
 df_cols = ['brk', 'anon-mmap', 'file-mmap']
-path = args.experiments_root + '/repeat1'
+path = args.experiments_root + '/repeat0'
 allFiles = glob.glob(path + "/mosalloc_hpbrs_sizes*.csv")
 for f in allFiles:
     df = pd.read_csv(f, index_col=False)

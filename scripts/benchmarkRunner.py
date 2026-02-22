@@ -1,6 +1,25 @@
 #! /usr/bin/env python3
 
 import argparse
+import os
+import sys
+
+def findBenchmarksRoot():
+    benchmarks_root = sys.path[0]
+    # override benchmarks_root if supplied by an environment variable
+    environment_variables = dict(os.environ)
+    if 'BENCHMARKS_ROOT' in environment_variables:
+        benchmarks_root = environment_variables['BENCHMARKS_ROOT']
+    error_string = 'Error: the benchmarks root ' + benchmarks_root + ' was not found.\n' + \
+            'The directory search path is (in the following order):\n' + \
+            '(1) the BENCHMARKS_ROOT environment variable.\n' + \
+            '(2) the directory containing this script, i.e., ' + sys.path[0]
+    if not os.path.exists(benchmarks_root):
+        sys.exit(error_string)
+    return benchmarks_root
+
+benchmarks_root = findBenchmarksRoot()
+
 def getCommandLineArguments():
     parser = argparse.ArgumentParser(description='This python script runs a single benchmark, \
             possibly with a prefixing submit command like \"perf stat --\". \
@@ -73,7 +92,10 @@ if __name__ == "__main__":
 
 
         if args.loop_until is not None:
-            run.run_loop_until(args.num_threads, run_cmd, args.loop_until)
+            loop_forever = benchmarks_root + '/loopForever.sh'
+            timeout_cmd = f"timeout {args.loop_until} {loop_forever}"
+            run_cmd = f"{args.prefix} {timeout_cmd} {args.submit_command}".strip()
+            run.run(args.num_threads, run_cmd)
         else:
             p = run.run(args.num_threads, run_cmd)
             p.check_returncode()

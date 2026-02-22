@@ -30,21 +30,6 @@ def killAllSubprocesses(signum, frame):
 signal.signal(signal.SIGINT, killAllSubprocesses)
 signal.signal(signal.SIGTERM, killAllSubprocesses)
 
-def findBenchmarksRoot():
-    benchmarks_root = sys.path[0]
-    # override benchmarks_root if supplied by an environment variable
-    environment_variables = dict(os.environ)
-    if 'BENCHMARKS_ROOT' in environment_variables:
-        benchmarks_root = environment_variables['BENCHMARKS_ROOT']
-    error_string = 'Error: the benchmarks root ' + benchmarks_root + ' was not found.\n' + \
-            'The directory search path is (in the following order):\n' + \
-            '(1) the BENCHMARKS_ROOT environment variable.\n' + \
-            '(2) the directory containing this script, i.e., ' + sys.path[0]
-    if not os.path.exists(benchmarks_root):
-        sys.exit(error_string)
-    return benchmarks_root
-
-benchmarks_root = findBenchmarksRoot()
 
 class BenchmarkRun:
     def __init__(self, benchmark_dir: str, run_dir: str, output_dir: str):
@@ -203,24 +188,6 @@ class BenchmarkRun:
         self.clean_run_dir(threshold, exclude_files)
         self.clean_output_dir(threshold, exclude_files)
 
-    def run_with_timeout(self, num_threads: int, submit_command: str, timeout_s: int):
-        """Run ./run.sh with a wall-clock timeout (Linux `timeout`)."""
-        timeout_cmd = f"timeout {timeout_s}"
-        full_cmd = f"{submit_command} {timeout_cmd}".strip()
-        return self.run(num_threads, full_cmd)
-
-    def run_loop_until(self, num_threads: int, submit_command: str, loop_until_s: int):
-            """Run ./run.sh repeatedly via ./loopForever.sh for LOOP_UNTIL seconds.
-
-            Effective command:
-                <submit_command> timeout <loop_until_s> ./loopForever.sh ./run.sh
-            """
-            loop_forever = benchmarks_root + '/loopForever.sh'
-
-            timeout_cmd = f"timeout {loop_until_s} {loop_forever}"
-            full_cmd = f"{submit_command} {timeout_cmd}".strip()
-            return self.run(num_threads, full_cmd)
-    
 def getCommandLineArguments():
     parser = argparse.ArgumentParser(description='This python script runs a single benchmark, \
             possibly with a prefixing submit command like \"perf stat --\". \
@@ -264,11 +231,14 @@ if __name__ == "__main__":
     if not run.doesOutputDirectoryExist(): # skip existing directories
         run.prerun()
         if args.timeout:
-            p = run.run_with_timeout(args.num_threads, args.submit_command, args.timeout)
+            timeout_command = f'timeout {args.timeout}'
+            p = run.run(args.num_threads, args.submit_command+' '+timeout_command)
             if p.returncode == 0: # the run ended before the timeout
                 run.postrun()
         elif args.loop_until:
-            run.run_loop_until(args.num_threads, args.submit_command, args.loop_until)
+            loop_forever = './loopForever.sh'
+            timeout_command = f'timeout {args.loop_until} {loop_forever}'
+            run.run(args.num_threads, args.submit_command+' '+timeout_command)
             # don't check the exit status of run() because it was interrupted by timeout
             # don't call postrun() because we cannot validate a run that was interrupted by timeout
         else:
@@ -276,4 +246,3 @@ if __name__ == "__main__":
             p.check_returncode()
             run.postrun()
         run.clean(args.clean_threshold, args.exclude_files)
-

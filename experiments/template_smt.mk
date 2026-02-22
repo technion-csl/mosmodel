@@ -23,8 +23,6 @@ endef
 
 define MEASUREMENTS_template =
 $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
-	echo ========== [INFO] allocate/reserve hugepages ==========
-	$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
 	echo ========== [INFO] start producing: $$@ ==========
 	@set -eu; \
 	setsid $$(RUN_BENCHMARK) \
@@ -53,10 +51,10 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	\
 	setsid $$(RUN_BENCHMARK) \
 		--loop_until $$(MEASURE_TIMEOUT) \
+		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS)" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
-		--submit_command "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS) \
-		$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
+		--submit_command "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$$(BENCHMARK1) \
 		--output_dir=$$* \
 		--run_dir=$$(EXPERIMENTS_RUN_DIR)/1 \

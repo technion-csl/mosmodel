@@ -1,5 +1,5 @@
 MODULE_NAME := experiments/single_page_size
-SINGLE_PAGE_SIZE_LAYOUTS ?= layout4kb layout2mb  
+SINGLE_PAGE_SIZE_LAYOUTS ?= layout2mb layout4kb 
 LAYOUTS := $(SINGLE_PAGE_SIZE_LAYOUTS)
 
 SINGLE_PAGE_SIZE_EXPERIMENT := $(MODULE_NAME)

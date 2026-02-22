@@ -9,11 +9,6 @@ MOSMODEL_TEMPLATE_MAKEFILE  := $(MODULE_NAME)/template.mk
 MOSMODEL_STRATEGY_MAKEFILE  := $(MODULE_NAME)/strategy_eval.mk
 MOSMODEL_AUTOGEN_MAKEFILE   := $(MODULE_NAME)/autogen.mk
 
-MOSMODEL_USER_CONFIG_MK ?=
-ifneq ($(strip $(MOSMODEL_USER_CONFIG_MK)),)
-  -include $(MOSMODEL_USER_CONFIG_MK)
-endif
-
 include $(MODULE_NAME)/strategies.mk
 
 MOSMODEL_COMPARE := analysis/mosmodel/max_errors.pdf

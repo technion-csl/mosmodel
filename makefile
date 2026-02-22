@@ -27,8 +27,20 @@ SCRIPTS_ROOT_DIR := $(ROOT_DIR)/scripts
 # uses variables defined in module A, than module A should come before module B
 SUBMODULES := slurm experiments analysis
 
-include benchmark.mk
-include config.mk
+MOSMODEL_USER_CONFIG_MK ?=
+ifneq ($(strip $(MOSMODEL_USER_CONFIG_MK)),)
+  -include $(MOSMODEL_USER_CONFIG_MK)
+else
+	include config.mk
+endif
+
+MOSMODEL_USER_BENCHMARK_MK ?=
+ifneq ($(strip $(MOSMODEL_USER_BENCHMARK_MK)),)
+  -include $(MOSMODEL_USER_BENCHMARK_MK)
+else
+	include benchmark.mk
+endif
+
 include $(ROOT_DIR)/common.mk
 
 # a top-level "clean" target, which calls all/clean

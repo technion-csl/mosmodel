@@ -41,27 +41,27 @@ $(WHISKER_CHART): $(WHISKER_FILE)
 
 $(NORMALIZED_SCATTER_FILE): analysis/%/normalized_scatter.csv: results/%/mean.csv
 	mkdir -p $(dir $@)
-	$(ARRANGE_DATA_TO_PLOT) --normalize='by-y' --y-metric='cpu-cycles' \
+	$(ARRANGE_DATA_TO_PLOT) --normalize='by-y' --y-metric='cpi' --x-metric='stlb_mpki' \
 		--mean_file=$< --output=$@
 
 $(MEDIAN_SCATTER_FILE): analysis/%/median_scatter.csv: results/%/median.csv
 	mkdir -p $(dir $@)
-	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpu-cycles' \
+	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpi' --x-metric='stlb_mpki' \
 		--mean_file=$< --output=$@
 
 $(SCATTER_FILE): analysis/%/scatter.csv: results/%/mean.csv
 	mkdir -p $(dir $@)
-	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpu-cycles' \
+	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpi' --x-metric='stlb_mpki' \
 		--mean_file=$< --output=$@
 
-$(WHISKER_FILE): analysis/%/whisker.csv: results/%/mean.csv results/%/std.csv
+$(WHISKER_FILE): analysis/%/whisker.csv: results/%/all_repeats.csv results/%/std.csv
 	mkdir -p $(dir $@)
-	$(ARRANGE_DATA_TO_PLOT) --normalize='by-y' --y-metric='cpu-cycles' \
+	$(ARRANGE_DATA_TO_PLOT) --normalize='by-y' --y-metric='cpi' --x-metric='stlb_mpki' \
 		--mean_file=$(word 1,$^) --std_file=$(word 2,$^) --output=$@
 
 $(ALL_REPEATS_SCATTER_FILE): analysis/%/all_repeats_scatter.csv: results/%/all_repeats.csv
 	mkdir -p $(dir $@)
-	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpu-cycles' \
+	$(ARRANGE_DATA_TO_PLOT) --y-metric='cpi' --x-metric='stlb_mpki' \
 		--mean_file=$< --output=$@
 
 $(MODULE_NAME)/clean:

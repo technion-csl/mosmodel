@@ -9,7 +9,7 @@ EXTRA_ARGS_FOR_MOSALLOC := --analyze
 
 $(EXPERIMENT_DIR): $(EXPERIMENTS)
 
-$(EXPERIMENTS): $(MEASUREMENTS)
+$(EXPERIMENTS):
 
 $(MEASUREMENTS): %/repeat0/perf.out: $(EXPERIMENT_DIR)/layouts/layout4kb.csv | experiments-prerequisites
 	echo ========== [INFO] start producing: $@ ==========

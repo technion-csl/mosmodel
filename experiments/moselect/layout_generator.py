@@ -1449,9 +1449,9 @@ class LayoutGeneratorUtils(metaclass=Singleton):
         results_df = results_ps.getDataFrame()
         results_df['cpu-cycles'] = results_ps.getRuntime()
         results_df['walk_cycles'] = results_ps.getWalkDuration()
-        results_df['stlb_hits'] = results_ps.getStlbHits()
+        # results_df['stlb_hits'] = results_ps.getStlbHits()
         results_df['stlb_misses'] = results_ps.getStlbMisses()
-        df = results_df[['layout', 'walk_cycles', 'stlb_hits', 'stlb_misses', 'cpu-cycles']]
+        df = results_df[['layout', 'walk_cycles', 'stlb_misses', 'cpu-cycles']]
         # drop duplicated rows
         important_columns = list(df.columns)
         important_columns.remove('layout')

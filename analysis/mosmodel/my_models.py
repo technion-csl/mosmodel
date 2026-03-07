@@ -22,7 +22,7 @@ def getMosmodel(degree):
 
 mosmodel = getMosmodel(3)
 
-import utility
+from . import utility
 def calculateModelError(model, train_df, test_df, features):
     x_test = test_df[features]
     y_true = test_df['cpu-cycles']

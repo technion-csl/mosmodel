@@ -31,7 +31,7 @@ $(MODULE_NAME)/$(1)/layout_generators.mk:
 		echo '# Auto-generated defaults. Edit freely or override from parent/CLI.'; \
 		echo '# Strategy: $(1)'; \
 		echo ''; \
-		echo 'MOSMODEL_TRAIN_LAYOUT_GENERATORS_$(1) ?= $(1) single_page_size'; \
+		echo 'MOSMODEL_TRAIN_LAYOUT_GENERATORS_$(1) ?= $(1)'; \
 		echo 'MOSMODEL_TEST_LAYOUT_GENERATORS_$(1)  ?= $$$$(MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS)'; \
 		echo ''; \
 		echo '# Convenience aliases (used by some templates):'; \

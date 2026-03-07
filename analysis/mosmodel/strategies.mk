@@ -3,4 +3,4 @@ MOSMODEL_STRATEGIES ?= \
 	moselect
 
 # Default common test generator(s) (parent can override)
-MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS ?= random_window_2m
+MOSMODEL_DEFAULT_TEST_LAYOUT_GENERATORS ?=

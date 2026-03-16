@@ -179,9 +179,24 @@ $(CUSTOM_RUN_EXPERIMENT_SCRIPT): $(CUSTOM_RUN_EXPERIMENT_TEMPLATE)
 #### calculating the total number of instructions
 
 INSTRUCTION_COUNT_FILE := $(MODULE_NAME)/instruction_count.csv
+BEST_INTERVAL_FILE := $(MODULE_NAME)/best_interval.json
 
-$(INSTRUCTION_COUNT_FILE): | experiments/single_page_size/layout4kb
-	$(SCRIPTS_ROOT_DIR)/countInstructions.py $| > $@
+INSTR_MODE ?= FULL
+
+ifeq ($(INSTR_MODE),INT)
+INSTRUCTION_COUNT_DEPS := $(BEST_INTERVAL_FILE)
+COUNT_INSTR_ARGS := --instruction_interval_json $(BEST_INTERVAL_FILE)
+else
+INSTRUCTION_COUNT_DEPS :=
+COUNT_INSTR_ARGS :=
+endif
+
+.PHONY: FORCE
+$(INSTRUCTION_COUNT_FILE): FORCE $(INSTRUCTION_COUNT_DEPS) | experiments/single_page_size/layout4kb
+	$(SCRIPTS_ROOT_DIR)/countInstructions.py $| $(COUNT_INSTR_ARGS) > $@
+
+$(BEST_INTERVAL_FILE): experiments/single_page_size/layout4kb
+	python3 $(SCRIPTS_ROOT_DIR)/findBestInterval.py $< --output-json $@ --resolution-sec 6 --cpi-tol 0.13 --mpki-tol 0.13
 
 #### recipes and rules for calculating the benchmark memory footprint
 

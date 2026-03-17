@@ -30,7 +30,7 @@ ifeq ($(RUN_MODE),smt)
 $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.csv | experiments-prerequisites
 	@set -eu; \
 	setsid $(RUN_BENCHMARK) --force \
-		--loop_until $(MEASURE_TIMEOUT) \
+		--loop_until $(MEASURE_TIMEOUT2) \
 		--repeat=repeat1 \
 		--prefix="$(SET_TASK_AFFINITY_CMD_2)" \
 		--num_threads=$(NUMBER_OF_THREADS) \
@@ -54,7 +54,7 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 	trap 'cleanup_all; exit 130' INT TERM; \
 	\
 	setsid $(RUN_BENCHMARK) --force \
-		--loop_until $(MEASURE_TIMEOUT) \
+		--loop_until $(MEASURE_TIMEOUT1) \
 		--repeat=repeat1 \
 		--prefix="$(PEBS_PREFIX_1)" \
 		--num_threads=$(NUMBER_OF_THREADS) \

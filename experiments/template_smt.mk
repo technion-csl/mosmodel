@@ -26,7 +26,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	echo ========== [INFO] start producing: $$@ ==========
 	@set -eu; \
 	setsid $$(RUN_BENCHMARK) \
-		--loop_until $$(MEASURE_TIMEOUT) \
+		--loop_until $$(MEASURE_TIMEOUT2) \
 		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 2" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
@@ -50,7 +50,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	trap 'cleanup_all; exit 130' INT TERM; \
 	\
 	setsid $$(RUN_BENCHMARK) \
-		--loop_until $$(MEASURE_TIMEOUT) \
+		--loop_until $$(MEASURE_TIMEOUT1) \
 		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS)" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \

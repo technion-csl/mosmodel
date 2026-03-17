@@ -62,13 +62,9 @@ import time
 if __name__ == "__main__":
     args = getCommandLineArguments()
 
-    # then replace repeated_runs construction with:
-    if args.loop_until is not None:
-        assert args.repeat is not None, "When using --loop_until, you must also specify --repeat to name the output directory."
-        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
-    elif args.repeat is not None:
-        repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
-    
+
+    repeated_runs = [BenchmarkRun(args.benchmark_dir, args.run_dir, args.output_dir + '/' + args.repeat)]
+
     existing_repeat_dirs = 0
     for run in repeated_runs:
         if run.doesOutputDirectoryExist():
@@ -91,7 +87,7 @@ if __name__ == "__main__":
         print(f'start producing:\n\t{run._output_dir}')
 
 
-        if args.loop_until is not None:
+        if args.loop_until is not None and args.loop_until > 0:
             loop_forever = benchmarks_root + '/loopForever.sh'
             timeout_cmd = f"timeout {args.loop_until} {loop_forever}"
             run_cmd = f"{args.prefix} {timeout_cmd} {args.submit_command}".strip()

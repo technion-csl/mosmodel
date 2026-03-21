@@ -6,6 +6,14 @@ ifeq ($(strip $(BENCHMARK2)),)
 $(error "===> RUN_MODE=smt but BENCHMARK2 is not set! <===")
 endif
 
+ifdef CPU1
+  CPU_MEMORY_AFFINITY_ARGS1 := --cpu $(CPU1)
+  CPU_MEMORY_AFFINITY_ARGS2 := --cpu $(CPU2)
+else
+  CPU_MEMORY_AFFINITY_ARGS1 := --smt 1
+  CPU_MEMORY_AFFINITY_ARGS2 := --smt 2
+endif
+
 include $(EXPERIMENTS_VARS_TEMPLATE)
 
 WARMUP_REPEAT := repeat0
@@ -27,7 +35,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	@set -eu; \
 	setsid $$(RUN_BENCHMARK) \
 		--loop_until $$(MEASURE_TIMEOUT2) \
-		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 2" \
+		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--benchmark_dir=$$(BENCHMARK2) \
@@ -51,7 +59,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 	\
 	setsid $$(RUN_BENCHMARK) \
 		--loop_until $$(MEASURE_TIMEOUT1) \
-		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) --smt 1 $$(MEASURE_GENERAL_METRICS)" \
+		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1) $$(MEASURE_GENERAL_METRICS)" \
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--submit_command "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \

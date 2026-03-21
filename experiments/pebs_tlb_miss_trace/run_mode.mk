@@ -1,6 +1,14 @@
 # experiments/pebs_tlb_miss_trace/run_mode.mk
 # Handles ST/SMT rules for PEBS TLB miss trace module.
 
+ifdef CPU1
+  CPU_MEMORY_AFFINITY_ARGS1 := --cpu $(CPU1)
+  CPU_MEMORY_AFFINITY_ARGS2 := --cpu $(CPU2)
+else
+  CPU_MEMORY_AFFINITY_ARGS1 := --smt 1
+  CPU_MEMORY_AFFINITY_ARGS2 := --smt 2
+endif
+
 ifeq ($(RUN_MODE),smt)
   ifeq ($(strip $(BENCHMARK1)),)
     $(error "RUN_MODE=smt but BENCHMARK1 is not set")
@@ -9,8 +17,8 @@ ifeq ($(RUN_MODE),smt)
     $(error "RUN_MODE=smt but BENCHMARK2 is not set")
   endif
 
-  SET_TASK_AFFINITY_CMD_1 := $(SET_TASK_AFFINITY_CMD) --smt 1
-  SET_TASK_AFFINITY_CMD_2 := $(SET_TASK_AFFINITY_CMD) --smt 2
+  SET_TASK_AFFINITY_CMD_1 := $(SET_TASK_AFFINITY_CMD) $(CPU_MEMORY_AFFINITY_ARGS1)
+  SET_TASK_AFFINITY_CMD_2 := $(SET_TASK_AFFINITY_CMD) $(CPU_MEMORY_AFFINITY_ARGS2)
 else
   SET_TASK_AFFINITY_CMD_1 := $(SET_TASK_AFFINITY_CMD)
 endif

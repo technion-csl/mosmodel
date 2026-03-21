@@ -53,9 +53,12 @@ export EXPERIMENTS_ROOT := $(ROOT_DIR)/$(MODULE_NAME)
 export EXPERIMENTS_VARS_TEMPLATE := $(EXPERIMENTS_ROOT)/template_vars.mk
 
 NUMBER_OF_SOCKETS := $(shell ls -d /sys/devices/system/node/node*/ | wc -w)
-export BOUND_MEMORY_NODE := $$(( $(NUMBER_OF_SOCKETS) - 1 ))
 export NUMBER_OF_SOCKETS := $(shell ls -d /sys/devices/system/node/node*/ | wc -w)
 export NUMBER_OF_CORES_PER_SOCKET := $(shell ls -d /sys/devices/system/node/node0/cpu*/ | wc -w)
+BOUND_MEMORY_NODE ?= $$(( $(NUMBER_OF_SOCKETS) - 1 ))
+MOSALLOC_HUGEPAGES_NODE ?= $(BOUND_MEMORY_NODE)
+export BOUND_MEMORY_NODE
+export MOSALLOC_HUGEPAGES_NODE
 
 export EXPERIMENTS_ROOT_DIR := $(ROOT_DIR)/$(MODULE_NAME)
 export EXPERIMENTS_RUN_DIR := $(EXPERIMENTS_ROOT_DIR)/run_dir

@@ -3,6 +3,12 @@ include $(EXPERIMENTS_VARS_TEMPLATE)
 WARMUP_REPEAT := repeat0
 REPEATS_WITH_WARMUP := $(WARMUP_REPEAT) $(REPEATS)
 
+ifdef CPU1
+  CPU_MEMORY_AFFINITY_ARGS := --cpu $(CPU1)
+else
+  CPU_MEMORY_AFFINITY_ARGS := --smt 1
+endif
+
 define MEASURE_LAYOUT_REPEATS
   $(eval __prev :=)
   $(foreach repeat,$(REPEATS_WITH_WARMUP), \
@@ -20,7 +26,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--submit_command \
-		"$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(MEASURE_GENERAL_METRICS)  \
+		"$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS) $$(MEASURE_GENERAL_METRICS)  \
 		$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$$(BENCHMARK_PATH) \
 		--output_dir=$$* \

@@ -5,6 +5,12 @@ EXPERIMENTS := $(EXPERIMENT_DIR)/$(LAYOUTS)
 MEASUREMENTS := $(EXPERIMENTS)/repeat0/perf.out
 LAYOUT_FILES := $(EXPERIMENT_DIR)/layouts/$(LAYOUTS).csv
 
+ifdef CPU1
+  CPU_MEMORY_AFFINITY_ARGS := --cpu $(CPU1)
+else
+  CPU_MEMORY_AFFINITY_ARGS := --smt 1
+endif
+
 EXTRA_ARGS_FOR_MOSALLOC := --analyze
 
 $(EXPERIMENT_DIR): $(EXPERIMENTS)
@@ -18,7 +24,7 @@ $(MEASUREMENTS): %/repeat0/perf.out: $(EXPERIMENT_DIR)/layouts/layout4kb.csv | e
 		--num_threads=$(NUMBER_OF_THREADS) \
 		--repeat=repeat0 \
 		--submit_command \
-		"$(SET_CPU_MEMORY_AFFINITY) $(BOUND_MEMORY_NODE) $(MEASURE_GENERAL_METRICS)  \
+		"$(SET_CPU_MEMORY_AFFINITY) $(BOUND_MEMORY_NODE) $(CPU_MEMORY_AFFINITY_ARGS) $(MEASURE_GENERAL_METRICS)  \
 		$(RUN_MOSALLOC_TOOL) --library $(MOSALLOC_TOOL) -cpf $(ROOT_DIR)/$< $(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$(BENCHMARK1) \
 		--output_dir=$* \

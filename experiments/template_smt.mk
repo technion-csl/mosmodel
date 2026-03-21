@@ -31,8 +31,8 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--num_threads=$$(NUMBER_OF_THREADS) \
 		--repeat=$(2) \
 		--benchmark_dir=$$(BENCHMARK2) \
-		--output_dir=$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1) \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/2 \
+		--output_dir=$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2) \
+		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/2 \
 		& pid2=$$$$!; \
 	sid2=$$$$(ps -o sid= -p $$$$pid2 | tr -d ' '); \
 	\
@@ -57,7 +57,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--submit_command "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$$(BENCHMARK1) \
 		--output_dir=$$* \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/1 \
+		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/1 \
 		& pid1=$$$$!; \
 	sid1=$$$$(ps -o sid= -p $$$$pid1 | tr -d ' '); \
 	\

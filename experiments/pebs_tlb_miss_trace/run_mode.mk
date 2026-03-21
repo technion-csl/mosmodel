@@ -36,7 +36,7 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--num_threads=$(NUMBER_OF_THREADS) \
 		--benchmark_dir=$(BENCHMARK2) \
 		--output_dir=$(PEBS_BG_OUT_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)/2 \
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/pebs_tlb_miss_trace/repeat1/2 \
 		& pid2=$$!; \
 	sid2=$$(ps -o sid= -p $$pid2 | tr -d ' '); \
 	\
@@ -62,7 +62,7 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--submit_command="$(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)" \
 		--benchmark_dir=$(BENCHMARK1) \
 		--output_dir=$(PEBS_EXP_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)/1 \
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/pebs_tlb_miss_trace/repeat1/1 \
 		& pid1=$$!; \
 	sid1=$$(ps -o sid= -p $$pid1 | tr -d ' '); \
 	\
@@ -80,7 +80,7 @@ $(PEBS_TLB_MISS_TRACE_OUTPUT): experiments/single_page_size/layouts/layout4kb.cs
 		--submit_command="$(RUN_MOSALLOC_TOOL) --analyze -cpf $(ROOT_DIR)/experiments/single_page_size/layouts/layout4kb.csv --library $(MOSALLOC_TOOL)" \
 		--benchmark_dir=$(BENCHMARK_PATH) \
 		--output_dir=$(PEBS_EXP_DIR) \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/pebs_tlb_miss_trace/repeat1/1
 
 endif
 

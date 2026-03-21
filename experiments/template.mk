@@ -24,7 +24,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$$(BENCHMARK_PATH) \
 		--output_dir=$$* \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)
+		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/1
 endef
 
 define VANILLA_template =

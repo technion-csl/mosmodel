@@ -22,7 +22,7 @@ $(MEASUREMENTS): %/repeat0/perf.out: $(EXPERIMENT_DIR)/layouts/layout4kb.csv | e
 		$(RUN_MOSALLOC_TOOL) --library $(MOSALLOC_TOOL) -cpf $(ROOT_DIR)/$< $(EXTRA_ARGS_FOR_MOSALLOC) --" \
 		--benchmark_dir=$(BENCHMARK1) \
 		--output_dir=$* \
-		--run_dir=$(EXPERIMENTS_RUN_DIR)/1
+		--run_dir=$(EXPERIMENTS_RUN_DIR)/memory_footprint/repeat0/1
 
 CREATE_MEMORY_FOOTPRINT_LAYOUTS := $(MODULE_NAME)/createLayouts.py
 $(LAYOUT_FILES):

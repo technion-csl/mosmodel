@@ -6,14 +6,6 @@ ifeq ($(strip $(BENCHMARK2)),)
 $(error "===> RUN_MODE=smt but BENCHMARK2 is not set! <===")
 endif
 
-ifdef CPU1
-  CPU_MEMORY_AFFINITY_ARGS1 := --cpu $(CPU1)
-  CPU_MEMORY_AFFINITY_ARGS2 := --cpu $(CPU2)
-else
-  CPU_MEMORY_AFFINITY_ARGS1 := --smt 1
-  CPU_MEMORY_AFFINITY_ARGS2 := --smt 2
-endif
-
 include $(EXPERIMENTS_VARS_TEMPLATE)
 
 WARMUP_REPEAT := repeat0
@@ -28,53 +20,29 @@ define MEASURE_LAYOUT_REPEATS
 endef
 
 # ---------- Templates ----------
-
 define MEASUREMENTS_template =
 $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
 	echo ========== [INFO] start producing: $$@ ==========
-	@set -eu; \
-	setsid $$(RUN_BENCHMARK) \
-		--loop_until $$(MEASURE_TIMEOUT2) \
-		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
-		--num_threads=$$(NUMBER_OF_THREADS) \
-		--repeat=$(2) \
-		--benchmark_dir=$$(BENCHMARK2) \
-		--output_dir=$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2) \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/2 \
-		& pid2=$$$$!; \
-	sid2=$$$$(ps -o sid= -p $$$$pid2 | tr -d ' '); \
-	\
-	cleanup_bg(){ \
-		pkill -KILL -s $$$$sid2 2>/dev/null || true; \
-		wait $$$$pid2 2>/dev/null || true; \
-		rm -rf "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)" 2>/dev/null || true; \
-	}; \
-	cleanup_all(){ \
-		pkill -KILL -s $$$$sid1 2>/dev/null || true; \
-		wait $$$$pid1 2>/dev/null || true; \
-		cleanup_bg; \
-	}; \
-	trap cleanup_bg EXIT; \
-	trap 'cleanup_all; exit 130' INT TERM; \
-	\
-	setsid $$(RUN_BENCHMARK) \
-		--loop_until $$(MEASURE_TIMEOUT1) \
-		--prefix="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1) $$(MEASURE_GENERAL_METRICS)" \
-		--num_threads=$$(NUMBER_OF_THREADS) \
-		--repeat=$(2) \
-		--submit_command "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
-		--benchmark_dir=$$(BENCHMARK1) \
-		--output_dir=$$* \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/1 \
-		& pid1=$$$$!; \
-	sid1=$$$$(ps -o sid= -p $$$$pid1 | tr -d ' '); \
-	\
-	wait $$$$pid1; rc=$$$$?; \
-	cleanup_bg; \
-	exit $$$$rc
+	$$(PYTHON) -m scripts.mosmodel_controller.run_pair \
+		--benchmark1 "$$(BENCHMARK1)" \
+		--benchmark2 "$$(BENCHMARK2)" \
+		--run-dir "$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)" \
+		--side1-output-dir "$$(@D)" \
+		--side2-output-dir "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)" \
+		--output-target "$$@" \
+		--num-threads "$$(NUMBER_OF_THREADS)" \
+    --loop-until1 "$$(MEASURE_TIMEOUT1)" \
+		--loop-until2 "$$(MEASURE_TIMEOUT2)" \
+    --prefix1="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1)" \
+    --prefix2="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
+    --submit1 "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
+    --sample-instructions \
+    --i-start-side1 $$(I_START1) \
+    --i-end-side1   $$(I_END1) \
+    --i-start-side2 $$(I_START2) \
+    --i-end-side2   $$(I_END2) \
+    --sync-interval-windows
 endef
-
-
 
 # define CSET_SHIELD_EXPS_template =
 # $(EXPERIMENT_DIR)/$(1)/1/$(2)/perf.out: %/1/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites

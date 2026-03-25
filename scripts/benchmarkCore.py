@@ -92,6 +92,8 @@ class BenchmarkRun:
             pre_run_filename = 'warmup.sh'
         else:
             pre_run_filename = pre_run_filename[0]
+        # Execute local prerun scripts from the benchmark run directory.
+        pre_run_filename = './' + pre_run_filename
         subprocess.run(pre_run_filename, stdout=self._log_file, stderr=self._log_file, check=True)
 
     def run(self, num_threads: int, submit_command: str):

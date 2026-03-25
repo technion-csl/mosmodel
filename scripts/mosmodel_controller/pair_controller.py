@@ -9,6 +9,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
 from ..benchmarkCore import BenchmarkRun
@@ -182,6 +183,14 @@ class PairController:
                 except FileNotFoundError:
                     pass
 
+        self.debug_log_path = Path(self.args.run_dir) / 'controller_debug.log'
+        ensure_parent(self.debug_log_path)
+        try:
+            self.debug_log_path.unlink()
+        except FileNotFoundError:
+            pass
+        self._debug_log('pair controller initialized')
+
         if self.debug_stop_cont_enabled:
             had_interval_flags = any(
                 value is not None
@@ -212,6 +221,31 @@ class PairController:
 
     def _external_socket_enabled(self) -> bool:
         return bool(self.external_resume_socket_path)
+
+
+    def _debug_log(self, message: str) -> None:
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+        line = f'[{ts}] {message}'
+        print(line)
+        try:
+            with self.debug_log_path.open('a', encoding='utf-8') as fh:
+                fh.write(line + '\n')
+        except Exception:
+            pass
+
+    def _ps_snapshot(self, label: str, launched: Optional[LaunchedSide]) -> None:
+        if launched is None:
+            self._debug_log(f'{label}: side not launched')
+            return
+        result = subprocess.run(
+            ['ps', '-o', 'pid,ppid,pgid,sid,psr,stat,pcpu,time,cmd', '-s', str(launched.sid)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False,
+        )
+        output = result.stdout.rstrip()
+        self._debug_log(
+            f'{label}: sid={launched.sid} benchmark_pgid={launched.benchmark_pgid} benchmark_pid={launched.benchmark_pid}\n'
+            + (output if output else '<no processes matched>')
+        )
 
     def _write_external_gate_state(self, state: str, **extra) -> None:
         if not self._external_gate_enabled() or self.external_state_file is None:
@@ -254,10 +288,7 @@ class PairController:
                 "side2_instructions": side2_instructions,
                 "state_path": str(self.external_state_file) if self.external_state_file is not None else None,
             }
-            print(
-                "[external resume socket] both sides are aligned and STOPped; "
-                f"waiting for RESUME from {self.external_resume_socket_path}"
-            )
+            self._debug_log(f'[external resume socket] both sides are aligned and STOPped; waiting for RESUME from {self.external_resume_socket_path}')
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.connect(self.external_resume_socket_path)
                 sock.sendall((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
@@ -285,16 +316,13 @@ class PairController:
                             side2_instructions=self.monitor2.total_instructions() if self.args.sample_instructions else side2_instructions,
                             sync_started=False,
                         )
-                        print("[external resume socket] RESUME observed; continuing synchronized interval startup")
+                        self._debug_log('[external resume socket] RESUME observed; continuing synchronized interval startup')
                         return
                     raise RuntimeError(f"unexpected external resume socket response: {response!r}")
 
         assert self.external_ready_file is not None and self.external_resume_file is not None
         self.external_ready_file.write_text("READY\n")
-        print(
-            "[external resume gate] both sides are aligned and STOPped; "
-            f"waiting for RESUME at {self.external_resume_file}"
-        )
+        self._debug_log(f'[external resume gate] both sides are aligned and STOPped; waiting for RESUME at {self.external_resume_file}')
         while True:
             if self.external_resume_file.exists():
                 try:
@@ -311,7 +339,7 @@ class PairController:
                     side2_instructions=self.monitor2.total_instructions() if self.args.sample_instructions else side2_instructions,
                     sync_started=False,
                 )
-                print("[external resume gate] RESUME observed; continuing synchronized interval startup")
+                self._debug_log('[external resume gate] RESUME observed; continuing synchronized interval startup')
                 return
             rc1 = self.proc1.proc.poll() if self.proc1 is not None else None
             rc2 = self.proc2.proc.poll() if self.proc2 is not None else None
@@ -329,10 +357,9 @@ class PairController:
             self._cleanup_started = True
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            print(
-                f"received {signal.Signals(signum).name}, terminating both sides...",
-                file=sys.stderr,
-            )
+            self._debug_log(f'received {signal.Signals(signum).name}, terminating both sides')
+            self._ps_snapshot('signal-handler side1', self.proc1)
+            self._ps_snapshot('signal-handler side2', self.proc2)
             self.terminate_both(grace_sec=1.0)
             self.join_monitors()
             self.print_interval_boundaries()
@@ -381,6 +408,9 @@ class PairController:
                     self.measurement1.enable()
                     self.measurement_enabled = True
                 release_benchmark(self.proc1)
+                self._debug_log(f'launch_both sample path side1_pid={side1_pid} side1_benchmark_pgid={getattr(self.proc1, "benchmark_pgid", None)} side2_benchmark_pgid={getattr(self.proc2, "benchmark_pgid", None)}')
+                self._ps_snapshot('launch_both after release side1', self.proc1)
+                self._ps_snapshot('launch_both after release side2', self.proc2)
                 self._maybe_run_debug_stop_cont_validation()
             else:
                 self.proc2 = launch_run(self.runs.run2, self.args.num_threads, self.runs.cmd2)
@@ -395,6 +425,9 @@ class PairController:
                 self.measurement1.enable()
                 self.measurement_enabled = True
                 release_benchmark(self.proc1)
+                self._debug_log(f'launch_both nonsample path side1_pid={side1_pid} side1_benchmark_pgid={getattr(self.proc1, "benchmark_pgid", None)} side2_benchmark_pgid={getattr(self.proc2, "benchmark_pgid", None)}')
+                self._ps_snapshot('launch_both after release side1', self.proc1)
+                self._ps_snapshot('launch_both after release side2', self.proc2)
                 self._maybe_run_debug_stop_cont_validation()
         except Exception:
             self.terminate_both(grace_sec=1.0)
@@ -501,21 +534,13 @@ class PairController:
             state.start_seen = True
             state.start_observed_instructions = current_instructions
             state.start_observed_monotonic_sec = now_monotonic
-            print(
-                f"[interval boundary] {state.label} reached I_start "
-                f"at instructions={current_instructions} "
-                f"(threshold={state.start_target})"
-            )
+            self._debug_log(f'[interval boundary] {state.label} reached I_start at instructions={current_instructions} (threshold={state.start_target})')
         if allow_end:
             if (not state.end_seen) and current_instructions >= state.end_target:
                 state.end_seen = True
                 state.end_observed_instructions = current_instructions
                 state.end_observed_monotonic_sec = now_monotonic
-                print(
-                    f"[interval boundary] {state.label} reached I_end "
-                    f"at instructions={current_instructions} "
-                    f"(threshold={state.end_target})"
-                )
+                self._debug_log(f'[interval boundary] {state.label} reached I_end at instructions={current_instructions} (threshold={state.end_target})')
         elif (
             state.start_seen
             and (not state.pre_sync_end_crossed)
@@ -524,10 +549,7 @@ class PairController:
             state.pre_sync_end_crossed = True
             state.pre_sync_end_observed_instructions = current_instructions
             state.pre_sync_end_observed_monotonic_sec = now_monotonic
-            print(
-                f"[interval sync] warning: {state.label} crossed I_end before synchronization started "
-                f"at instructions={current_instructions} (threshold={state.end_target})"
-            )
+            self._debug_log(f'[interval sync] warning: {state.label} crossed I_end before synchronization started at instructions={current_instructions} (threshold={state.end_target})')
 
     def _interval_boundaries_complete(self) -> bool:
         return bool(
@@ -545,25 +567,7 @@ class PairController:
         return self._interval_boundaries_complete()
 
     def _debug_print_ps_snapshot(self, label: str, launched: Optional[LaunchedSide]) -> None:
-        if launched is None:
-            print(f"[debug stop/cont] {label}: side not launched")
-            return
-        print(
-            f"[debug stop/cont] {label}: ps snapshot for sid={launched.sid}, "
-            f"benchmark_pgid={launched.benchmark_pgid}"
-        )
-        result = subprocess.run(
-            ["ps", "-o", "pid,ppid,pgid,sid,stat,cmd", "-s", str(launched.sid)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=False,
-        )
-        output = result.stdout.rstrip()
-        if output:
-            print(output)
-        else:
-            print("  <no processes matched>")
+        self._ps_snapshot(label, launched)
 
     def _maybe_run_debug_stop_cont_validation(self) -> None:
         if not self.debug_stop_cont_enabled:
@@ -608,13 +612,13 @@ class PairController:
             signal_benchmark_group(self.proc1, signal.SIGSTOP)
             self._print_sync_ps_snapshot("after STOP side1", self.proc1)
             self.sync_paused_side = "side1"
-            print("[interval sync] side1 reached I_start first; STOP side1 and wait for side2")
+            self._debug_log('[interval sync] side1 reached I_start first; STOP side1 and wait for side2')
         elif self.side2_interval.start_seen and not self.side1_interval.start_seen:
             self._print_sync_ps_snapshot("before STOP side2", self.proc2)
             signal_benchmark_group(self.proc2, signal.SIGSTOP)
             self._print_sync_ps_snapshot("after STOP side2", self.proc2)
             self.sync_paused_side = "side2"
-            print("[interval sync] side2 reached I_start first; STOP side2 and wait for side1")
+            self._debug_log('[interval sync] side2 reached I_start first; STOP side2 and wait for side1')
 
     def _choose_first_completed_side(self) -> str:
         assert self.side1_interval is not None and self.side2_interval is not None
@@ -648,12 +652,11 @@ class PairController:
                 signal_benchmark_group(self.proc2, signal.SIGSTOP)
                 self._print_sync_ps_snapshot("after sync-start STOP side1", self.proc1)
                 self._print_sync_ps_snapshot("after sync-start STOP side2", self.proc2)
+                self._ps_snapshot('sync-start both STOPped side1', self.proc1)
+                self._ps_snapshot('sync-start both STOPped side2', self.proc2)
                 self._wait_for_external_resume_if_needed(side1_instructions, side2_instructions)
                 if self.sync_measurement_bootstrap_sec > 0.0:
-                    print(
-                        "[interval sync] bootstrap run before measurement attach: CONT both sides for "
-                        f"{self.sync_measurement_bootstrap_sec:.3f}s so the real worker subtree can appear"
-                    )
+                    self._debug_log(f'[interval sync] bootstrap run before measurement attach: CONT both sides for {self.sync_measurement_bootstrap_sec:.3f}s so the real worker subtree can appear')
                     signal_benchmark_group(self.proc1, signal.SIGCONT)
                     signal_benchmark_group(self.proc2, signal.SIGCONT)
                     time.sleep(self.sync_measurement_bootstrap_sec)
@@ -682,10 +685,9 @@ class PairController:
                     side1_instructions=side1_instructions,
                     side2_instructions=side2_instructions,
                 )
-                print(
-                    "[interval sync] both sides reached I_start; stopped both benchmark groups, "
-                    "enabled measurement perf, CONT both sides and begin shared interval"
-                )
+                self._debug_log('[interval sync] both sides reached I_start; stopped both benchmark groups, enabled measurement perf, CONT both sides and begin shared interval')
+                self._ps_snapshot('sync-start after CONT side1', self.proc1)
+                self._ps_snapshot('sync-start after CONT side2', self.proc2)
                 self._update_interval_state(
                     self.side1_interval,
                     side1_instructions,
@@ -705,10 +707,9 @@ class PairController:
                 self.sync_completed_reason = self._choose_first_completed_side()
                 reason_label = "side1" if self.sync_completed_reason == "side1_end" else "side2"
                 self._disable_measurement_if_needed()
-                print(
-                    f"[interval sync] {reason_label} reached I_end after synchronization; "
-                    "disabled measurement perf and terminating both sides"
-                )
+                self._debug_log(f'[interval sync] {reason_label} reached I_end after synchronization; disabled measurement perf and terminating both sides')
+                self._ps_snapshot('sync-complete side1', self.proc1)
+                self._ps_snapshot('sync-complete side2', self.proc2)
                 self._write_external_gate_state(
                     "sync_completed",
                     sync_started=True,
@@ -755,7 +756,7 @@ class PairController:
                         return IntervalControlResult(rc1=rc1, rc2=rc2, interval_completed=True)
                 elif self._interval_boundaries_complete():
                     self._disable_measurement_if_needed()
-                    print("[interval boundary] both sides reached I_end; disabled measurement perf and terminating both sides")
+                    self._debug_log('[interval boundary] both sides reached I_end; disabled measurement perf and terminating both sides')
                     return IntervalControlResult(rc1=rc1, rc2=rc2, interval_completed=True)
 
             if self.interval_mode:

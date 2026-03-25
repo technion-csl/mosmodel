@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -163,6 +164,24 @@ class PairController:
         except ValueError:
             self.sync_measurement_bootstrap_sec = 0.1
 
+        self.external_resume_gate_dir: Optional[Path] = None
+        self.external_ready_file: Optional[Path] = None
+        self.external_resume_file: Optional[Path] = None
+        self.external_state_file: Optional[Path] = None
+        self.external_resume_socket_path: str = getattr(self.args, "external_resume_socket_path", "") or ""
+        self.external_resume_token: str = getattr(self.args, "external_resume_token", "") or ""
+        if getattr(self.args, "external_resume_gate_dir", ""):
+            self.external_resume_gate_dir = Path(self.args.external_resume_gate_dir)
+            self.external_ready_file = self.external_resume_gate_dir / "READY"
+            self.external_resume_file = self.external_resume_gate_dir / "RESUME"
+            self.external_state_file = self.external_resume_gate_dir / "STATE.json"
+            self.external_resume_gate_dir.mkdir(parents=True, exist_ok=True)
+            for stale in (self.external_ready_file, self.external_resume_file, self.external_state_file):
+                try:
+                    stale.unlink()
+                except FileNotFoundError:
+                    pass
+
         if self.debug_stop_cont_enabled:
             had_interval_flags = any(
                 value is not None
@@ -187,6 +206,121 @@ class PairController:
             self.sync_interval_mode = False
             self.side1_interval = None
             self.side2_interval = None
+
+    def _external_gate_enabled(self) -> bool:
+        return self.external_resume_gate_dir is not None or bool(self.external_resume_socket_path)
+
+    def _external_socket_enabled(self) -> bool:
+        return bool(self.external_resume_socket_path)
+
+    def _write_external_gate_state(self, state: str, **extra) -> None:
+        if not self._external_gate_enabled() or self.external_state_file is None:
+            return
+        payload = {
+            "state": state,
+            "run_dir": str(self.args.run_dir),
+            "output_target": str(self.args.output_target),
+            "side1_output_dir": str(self.args.side1_output_dir),
+            "side2_output_dir": str(self.args.side2_output_dir),
+            "side1_benchmark_pgid": getattr(self.proc1, "benchmark_pgid", None),
+            "side2_benchmark_pgid": getattr(self.proc2, "benchmark_pgid", None),
+            "side1_instructions": self.monitor1.total_instructions() if self.args.sample_instructions else None,
+            "side2_instructions": self.monitor2.total_instructions() if self.args.sample_instructions else None,
+            "timestamp_monotonic_sec": time.monotonic(),
+        }
+        payload.update(extra)
+        self.external_state_file.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+    def _wait_for_external_resume_if_needed(self, side1_instructions: int, side2_instructions: int) -> None:
+        if not self._external_gate_enabled():
+            return
+        self._write_external_gate_state(
+            "ready_waiting_for_resume",
+            side1_instructions=side1_instructions,
+            side2_instructions=side2_instructions,
+            sync_started=False,
+        )
+        if self._external_socket_enabled():
+            payload = {
+                "event": "READY",
+                "token": self.external_resume_token,
+                "run_dir": str(self.args.run_dir),
+                "output_target": str(self.args.output_target),
+                "side1_output_dir": str(self.args.side1_output_dir),
+                "side2_output_dir": str(self.args.side2_output_dir),
+                "side1_benchmark_pgid": getattr(self.proc1, "benchmark_pgid", None),
+                "side2_benchmark_pgid": getattr(self.proc2, "benchmark_pgid", None),
+                "side1_instructions": side1_instructions,
+                "side2_instructions": side2_instructions,
+                "state_path": str(self.external_state_file) if self.external_state_file is not None else None,
+            }
+            print(
+                "[external resume socket] both sides are aligned and STOPped; "
+                f"waiting for RESUME from {self.external_resume_socket_path}"
+            )
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.connect(self.external_resume_socket_path)
+                sock.sendall((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+                buffer = bytearray()
+                while True:
+                    rc1 = self.proc1.proc.poll() if self.proc1 is not None else None
+                    rc2 = self.proc2.proc.poll() if self.proc2 is not None else None
+                    if rc1 is not None or rc2 is not None:
+                        raise RuntimeError(
+                            "controller was waiting for external resume on socket, but one side exited early: "
+                            f"side1_rc={rc1} side2_rc={rc2}"
+                        )
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        raise RuntimeError("external resume socket closed before RESUME")
+                    buffer.extend(chunk)
+                    if b"\n" not in buffer:
+                        continue
+                    line, _rest = buffer.split(b"\n", 1)
+                    response = line.decode("utf-8", errors="replace").strip()
+                    if response == "RESUME":
+                        self._write_external_gate_state(
+                            "resumed",
+                            side1_instructions=self.monitor1.total_instructions() if self.args.sample_instructions else side1_instructions,
+                            side2_instructions=self.monitor2.total_instructions() if self.args.sample_instructions else side2_instructions,
+                            sync_started=False,
+                        )
+                        print("[external resume socket] RESUME observed; continuing synchronized interval startup")
+                        return
+                    raise RuntimeError(f"unexpected external resume socket response: {response!r}")
+
+        assert self.external_ready_file is not None and self.external_resume_file is not None
+        self.external_ready_file.write_text("READY\n")
+        print(
+            "[external resume gate] both sides are aligned and STOPped; "
+            f"waiting for RESUME at {self.external_resume_file}"
+        )
+        while True:
+            if self.external_resume_file.exists():
+                try:
+                    self.external_resume_file.unlink()
+                except FileNotFoundError:
+                    pass
+                try:
+                    self.external_ready_file.unlink()
+                except FileNotFoundError:
+                    pass
+                self._write_external_gate_state(
+                    "resumed",
+                    side1_instructions=self.monitor1.total_instructions() if self.args.sample_instructions else side1_instructions,
+                    side2_instructions=self.monitor2.total_instructions() if self.args.sample_instructions else side2_instructions,
+                    sync_started=False,
+                )
+                print("[external resume gate] RESUME observed; continuing synchronized interval startup")
+                return
+            rc1 = self.proc1.proc.poll() if self.proc1 is not None else None
+            rc2 = self.proc2.proc.poll() if self.proc2 is not None else None
+            if rc1 is not None or rc2 is not None:
+                raise RuntimeError(
+                    "controller was waiting for external resume, but one side exited early: "
+                    f"side1_rc={rc1} side2_rc={rc2}"
+                )
+            time.sleep(0.05)
 
     def install_signal_handlers(self) -> None:
         def cleanup_on_signal(signum, frame) -> None:
@@ -514,6 +648,7 @@ class PairController:
                 signal_benchmark_group(self.proc2, signal.SIGSTOP)
                 self._print_sync_ps_snapshot("after sync-start STOP side1", self.proc1)
                 self._print_sync_ps_snapshot("after sync-start STOP side2", self.proc2)
+                self._wait_for_external_resume_if_needed(side1_instructions, side2_instructions)
                 if self.sync_measurement_bootstrap_sec > 0.0:
                     print(
                         "[interval sync] bootstrap run before measurement attach: CONT both sides for "
@@ -541,6 +676,12 @@ class PairController:
                 self.sync_started_monotonic_sec = now_monotonic
                 self.sync_started_side1_instructions = side1_instructions
                 self.sync_started_side2_instructions = side2_instructions
+                self._write_external_gate_state(
+                    "sync_started",
+                    sync_started=True,
+                    side1_instructions=side1_instructions,
+                    side2_instructions=side2_instructions,
+                )
                 print(
                     "[interval sync] both sides reached I_start; stopped both benchmark groups, "
                     "enabled measurement perf, CONT both sides and begin shared interval"
@@ -567,6 +708,13 @@ class PairController:
                 print(
                     f"[interval sync] {reason_label} reached I_end after synchronization; "
                     "disabled measurement perf and terminating both sides"
+                )
+                self._write_external_gate_state(
+                    "sync_completed",
+                    sync_started=True,
+                    completed_reason=self.sync_completed_reason,
+                    side1_instructions=side1_instructions,
+                    side2_instructions=side2_instructions,
                 )
                 return True
         return False
@@ -749,6 +897,15 @@ class PairController:
         else:
             remove_dir_if_exists(Path(self.args.side2_output_dir))
 
+        self._write_external_gate_state(
+            "finished",
+            sync_started=self.sync_started,
+            interval_completed=interval_completed,
+            rc1=rc1,
+            rc2=rc2,
+            side1_success=side1_success,
+            side2_success=side2_success,
+        )
         return 0 if side1_success else (rc1 if rc1 is not None else 1)
 
 

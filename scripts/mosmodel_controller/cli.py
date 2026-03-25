@@ -142,6 +142,30 @@ def parse_args() -> argparse.Namespace:
             "side reaches I_end after synchronization begins"
         ),
     )
+
+    parser.add_argument(
+        "--external-resume-gate-dir",
+        default="",
+        help=(
+            "Optional directory used as an external resume gate for synchronized interval mode. "
+            "When set, the controller stops both benchmark groups once both start thresholds are observed, "
+            "writes READY/STATE files in that directory, and waits until RESUME appears before continuing."
+        ),
+    )
+    parser.add_argument(
+        "--external-resume-socket-path",
+        default=os.environ.get("MOSMODEL_CONTROLLER_EXTERNAL_RESUME_SOCKET_PATH", ""),
+        help=(
+            "Optional Unix domain socket path for the external resume gate. When set, the controller "
+            "connects to the scheduler, sends a READY payload, and waits for RESUME on the same socket."
+        ),
+    )
+    parser.add_argument(
+        "--external-resume-token",
+        default=os.environ.get("MOSMODEL_CONTROLLER_EXTERNAL_RESUME_TOKEN", ""),
+        help="Opaque token identifying this run to the external scheduler when using the socket gate.",
+    )
+
     parser.add_argument(
         "--debug-sync-ps",
         action="store_true",
@@ -194,4 +218,10 @@ def parse_args() -> argparse.Namespace:
     args.side1_output_dir = str(Path(args.side1_output_dir).resolve())
     args.side2_output_dir = str(Path(args.side2_output_dir).resolve())
     args.run_dir = str(Path(args.run_dir).resolve())
+    if args.external_resume_gate_dir:
+        args.external_resume_gate_dir = str(Path(args.external_resume_gate_dir).resolve())
+    if args.external_resume_socket_path:
+        args.external_resume_socket_path = str(Path(args.external_resume_socket_path))
+    if args.external_resume_token:
+        args.external_resume_token = str(args.external_resume_token)
     return args

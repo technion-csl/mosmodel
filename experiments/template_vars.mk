@@ -44,7 +44,7 @@ MEAN_RESULTS := $(addsuffix /mean.csv,$(RESULT_DIR))
 RESULT_FILES := median.csv std.csv all_repeats.csv
 ALL_RESULTS := $(foreach f,$(RESULT_FILES),$(addsuffix /$(f),$(RESULT_DIR)))
 
-REPEATS := $(shell seq 1 $(NUM_OF_REPEATS))
+REPEATS := $(shell seq 0 $(NUM_OF_REPEATS))
 REPEATS := $(addprefix repeat,$(REPEATS)) 
 
 EXPERIMENT_REPEATS := $(foreach experiment,$(EXPERIMENTS),$(foreach repeat,$(REPEATS),$(experiment)/$(repeat)))

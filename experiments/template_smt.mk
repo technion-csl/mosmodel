@@ -8,20 +8,9 @@ endif
 
 include $(EXPERIMENTS_VARS_TEMPLATE)
 
-WARMUP_REPEAT := repeat0
-REPEATS_WITH_WARMUP := $(WARMUP_REPEAT) $(REPEATS)
-
-define MEASURE_LAYOUT_REPEATS
-  $(eval __prev :=)
-  $(foreach r,$(REPEATS_WITH_WARMUP), \
-    $(eval $(call MEASUREMENTS_template,$(1),$(r),$(__prev))) \
-    $(eval __prev := $(r)) \
-  )
-endef
-
 # ---------- Templates ----------
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
 	echo ========== [INFO] start producing: $$@ ==========
 	$$(PYTHON) -m scripts.mosmodel_controller.run_pair \
 		--benchmark1 "$$(BENCHMARK1)" \
@@ -129,7 +118,7 @@ ifdef VANILLA_RUN
 $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call VANILLA_template,$(layout),$(repeat)))))
 else
   ifdef SERIAL_RUN
-  $(foreach layout,$(LAYOUTS),$(eval $(call MEASURE_LAYOUT_REPEATS,$(layout))))
+  $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS), $(eval $(call MEASUREMENTS_template,$(layout),$(repeat)))))
   else
     ifdef CSET_SHIELD_RUN
     $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call CSET_SHIELD_EXPS_template,$(layout),$(repeat)))))

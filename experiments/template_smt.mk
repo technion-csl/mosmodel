@@ -25,12 +25,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
     --prefix1="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1)" \
     --prefix2="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
     --submit1 "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
-    --sample-instructions \
-    --i-start-side1 $$(I_START1) \
-    --i-end-side1   $$(I_END1) \
-    --i-start-side2 $$(I_START2) \
-    --i-end-side2   $$(I_END2) \
-    --sync-interval-windows
+    $(RUN_PAIR_EXTRA_ARGS)
 endef
 
 # define CSET_SHIELD_EXPS_template =

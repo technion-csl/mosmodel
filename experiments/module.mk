@@ -79,7 +79,7 @@ ifeq ($(STOP_POLICY),FIXED)
 	RUN_PAIR_EXTRA_ARGS :=
 else ifeq ($(STOP_POLICY),TO_COMPLETION)
 	MEASURE_TIMEOUT1 ?= -1
-	MEASURE_TIMEOUT2 ?= -1
+	MEASURE_TIMEOUT2 ?= 999999
 	RUN_PAIR_MODE := legacy_to_completion
 	RUN_PAIR_EXTRA_ARGS :=
 else ifeq ($(STOP_POLICY),INSTRUCTION_INTERVAL)
@@ -87,10 +87,12 @@ else ifeq ($(STOP_POLICY),INSTRUCTION_INTERVAL)
 	MEASURE_TIMEOUT2 ?= -1
 	RUN_PAIR_MODE := instruction_interval
 	RUN_PAIR_EXTRA_ARGS := \
-		--start1 "$(I_START1)" \
-		--start2 "$(I_START2)" \
-		--end1 "$(I_END1)" \
-		--end2 "$(I_END2)"
+		--sample-instructions \
+		--i-start-side1 $$(I_START1) \
+		--i-end-side1   $$(I_END1) \
+		--i-start-side2 $$(I_START2) \
+		--i-end-side2   $$(I_END2) \
+		--sync-interval-windows
 else
 $(error Unsupported STOP_POLICY='$(STOP_POLICY)')
 endif

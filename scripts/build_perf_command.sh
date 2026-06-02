@@ -19,7 +19,7 @@ prefix_perf_command="perf stat --interval-print=1000 --field-separator=, --outpu
 # dtlb_events=${dtlb_events%?} # remove the trailing , charachter
 #dtlb_events=dtlb_load_misses.miss_causes_a_walk,dtlb_load_misses.walk_duration,dtlb_store_misses.miss_causes_a_walk,dtlb_store_misses.walk_duration
 
-dtlb_events="dtlb_load_misses.walk_active,dtlb_store_misses.walk_active,dtlb_load_misses.walk_completed,dtlb_store_misses.walk_completed"
+dtlb_events="dtlb_load_misses.walk_completed,dtlb_store_misses.walk_completed"
 
 perf_command="$prefix_perf_command --event=$general_events$dtlb_events -- "
 

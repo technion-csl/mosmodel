@@ -221,8 +221,6 @@ class DetachedMeasurementPerfSession:
     EVENTS = (
         "cpu-cycles,"
         "instructions,"
-        "dtlb_load_misses.walk_active,"
-        "dtlb_store_misses.walk_active,"
         "dtlb_load_misses.walk_completed,"
         "dtlb_store_misses.walk_completed"
     )

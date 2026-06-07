@@ -112,7 +112,7 @@ include $(EXPERIMENTS_ROOT)/run_mode_vars.mk
 MOSALLOC_BUILD_DIR := $(ROOT_DIR)/mosalloc/build
 
 # For now, only build malloc-standalone-automated
-MOSALLOC_CMAKE_OPTS := -DMALLOC_AUTO_ONLY=ON
+MOSALLOC_CMAKE_OPTS :=
 
 mosalloc: $(MOSALLOC_TOOL)
 $(MOSALLOC_TOOL): $(MOSALLOC_MAKEFILE)

@@ -126,7 +126,7 @@ $(MOSALLOC_TOOL): $(MOSALLOC_MAKEFILE)
 	fi
 
 $(MOSALLOC_MAKEFILE):
-	git submodule update --init --progress
+	git submodule update --init --recursive --progress
 
 experiments-prerequisites: perf numactl mosalloc cpu_max_perf $(PERF_COMMAND)
 

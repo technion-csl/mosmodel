@@ -165,6 +165,14 @@ class PairController:
         except ValueError:
             self.sync_measurement_bootstrap_sec = 0.1
 
+        try:
+            self.terminate_grace_sec = max(
+                0.0,
+                float(os.environ.get("MOSMODEL_CONTROLLER_TERMINATE_GRACE_SEC", "10.0")),
+            )
+        except ValueError:
+            self.terminate_grace_sec = 10.0
+
         self.external_resume_gate_dir: Optional[Path] = None
         self.external_ready_file: Optional[Path] = None
         self.external_resume_file: Optional[Path] = None
@@ -360,7 +368,7 @@ class PairController:
             self._debug_log(f'received {signal.Signals(signum).name}, terminating both sides')
             self._ps_snapshot('signal-handler side1', self.proc1)
             self._ps_snapshot('signal-handler side2', self.proc2)
-            self.terminate_both(grace_sec=1.0)
+            self.terminate_both(grace_sec=self.terminate_grace_sec)
             self.join_monitors()
             self.print_interval_boundaries()
             self.print_sampled_instructions()
@@ -430,7 +438,7 @@ class PairController:
                 self._ps_snapshot('launch_both after release side2', self.proc2)
                 self._maybe_run_debug_stop_cont_validation()
         except Exception:
-            self.terminate_both(grace_sec=1.0)
+            self.terminate_both(grace_sec=self.terminate_grace_sec)
             self.join_monitors()
             raise
 
@@ -852,7 +860,7 @@ class PairController:
             rc2 = control_result.rc2
             if interval_completed:
                 self._disable_measurement_if_needed()
-                term_rc1, term_rc2 = self.terminate_both(grace_sec=2.0)
+                term_rc1, term_rc2 = self.terminate_both(grace_sec=self.terminate_grace_sec)
                 if rc1 is None:
                     rc1 = term_rc1
                 if rc2 is None:
@@ -864,7 +872,7 @@ class PairController:
                     rc2 = self.proc2.proc.wait()
         else:
             rc1 = self.proc1.proc.wait() if self.proc1 is not None else 1
-            rc2 = terminate_and_wait(self.proc2, grace_sec=2.0)
+            rc2 = terminate_and_wait(self.proc2, grace_sec=self.terminate_grace_sec)
 
         self._disable_measurement_if_needed()
         self.join_monitors()

@@ -1,7 +1,9 @@
-include $(EXPERIMENTS_VARS_TEMPLATE)
+# --- Sanity checks (top of file) ---
+ifeq ($(strip $(BENCHMARK_PATH)),)
+$(error "===> RUN_MODE=st but BENCHMARK_PATH is not set! <===")
+endif
 
-WARMUP_REPEAT := repeat0
-REPEATS_WITH_WARMUP := $(WARMUP_REPEAT) $(REPEATS)
+include $(EXPERIMENTS_VARS_TEMPLATE)
 
 ifdef CPU1
   CPU_MEMORY_AFFINITY_ARGS := --cpu $(CPU1)
@@ -9,28 +11,22 @@ else
   CPU_MEMORY_AFFINITY_ARGS := --smt 1
 endif
 
-define MEASURE_LAYOUT_REPEATS
-  $(eval __prev :=)
-  $(foreach repeat,$(REPEATS_WITH_WARMUP), \
-    $(eval $(call MEASUREMENTS_template,$(1),$(repeat),$(__prev))) \
-    $(eval __prev := $(repeat)) \
-  )
-endef
-
+# ---------- Templates ----------
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites $(if $(3),$(EXPERIMENT_DIR)/$(1)/$(3)/perf.out)
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
 	echo ========== [INFO] allocate/reserve hugepages ==========
 	$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
-	echo ========== [INFO] start producing: $$@ ==========
-	$$(RUN_BENCHMARK) \
-		--num_threads=$$(NUMBER_OF_THREADS) \
-		--repeat=$(2) \
-		--submit_command \
-		"$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS) $$(MEASURE_GENERAL_METRICS)  \
-		$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
-		--benchmark_dir=$$(BENCHMARK_PATH) \
-		--output_dir=$$* \
-		--run_dir=$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/1
+	echo ========== [INFO] start producing ST run: $$@ ==========
+	$$(PYTHON) -m scripts.mosmodel_controller.run_single \
+		--benchmark "$$(BENCHMARK_PATH)" \
+		--run-dir "$$(EXPERIMENTS_RUN_DIR)/$(1)/$(2)/1" \
+		--output-dir "$$(@D)" \
+		--output-target "$$@" \
+		--num-threads "$$(NUMBER_OF_THREADS)" \
+		--loop-until "$$(MEASURE_TIMEOUT1)" \
+		--prefix "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS)" \
+		--submit "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
+		$(RUN_SINGLE_EXTRA_ARGS)
 endef
 
 define VANILLA_template =
@@ -78,9 +74,9 @@ endef
 
 ifdef VANILLA_RUN
 $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call VANILLA_template,$(layout),$(repeat)))))
-else 
+else
   ifdef SERIAL_RUN
-  $(foreach layout,$(LAYOUTS),$(eval $(call MEASURE_LAYOUT_REPEATS,$(layout))))
+  $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call MEASUREMENTS_template,$(layout),$(repeat)))))
   else
     ifdef CSET_SHIELD_RUN
     $(foreach layout,$(LAYOUTS),$(foreach repeat,$(REPEATS),$(eval $(call CSET_SHIELD_EXPS_template,$(layout),$(repeat)))))

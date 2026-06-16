@@ -75,17 +75,16 @@ export EXPERIMENTS_RUN_DIR := $(EXPERIMENTS_ROOT_DIR)/run_dir
 ifeq ($(STOP_POLICY),FIXED)
 	MEASURE_TIMEOUT1 ?= $(FIXED_DURATION_SEC)
 	MEASURE_TIMEOUT2 ?= $(FIXED_DURATION_SEC)
-	RUN_PAIR_MODE := legacy_to_completion
 	RUN_PAIR_EXTRA_ARGS :=
+	RUN_SINGLE_EXTRA_ARGS :=
 else ifeq ($(STOP_POLICY),TO_COMPLETION)
 	MEASURE_TIMEOUT1 ?= -1
 	MEASURE_TIMEOUT2 ?= 999999
-	RUN_PAIR_MODE := legacy_to_completion
 	RUN_PAIR_EXTRA_ARGS :=
+	RUN_SINGLE_EXTRA_ARGS :=
 else ifeq ($(STOP_POLICY),INSTRUCTION_INTERVAL)
 	MEASURE_TIMEOUT1 ?= -1
 	MEASURE_TIMEOUT2 ?= -1
-	RUN_PAIR_MODE := instruction_interval
 	RUN_PAIR_EXTRA_ARGS := \
 		--sample-instructions \
 		--i-start-side1 $$(I_START1) \
@@ -93,6 +92,10 @@ else ifeq ($(STOP_POLICY),INSTRUCTION_INTERVAL)
 		--i-start-side2 $$(I_START2) \
 		--i-end-side2   $$(I_END2) \
 		--sync-interval-windows
+	RUN_SINGLE_EXTRA_ARGS := \
+		--sample-instructions \
+		--i-start $$(I_START1) \
+		--i-end   $$(I_END1)
 else
 $(error Unsupported STOP_POLICY='$(STOP_POLICY)')
 endif

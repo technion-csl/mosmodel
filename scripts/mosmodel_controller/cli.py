@@ -105,6 +105,16 @@ def parse_args() -> argparse.Namespace:
         default=50,
         help="perf stat interval in milliseconds",
     )
+    parser.add_argument(
+        "--looped-fallback-until",
+        type=int,
+        default=1000000000,
+        help=(
+            "Timeout in seconds for a missing-interval SMT side when the other "
+            "side has a real instruction interval. The controller normally kills "
+            "this side when the valid side reaches I_end."
+        ),
+    )
 
 
 
@@ -182,12 +192,9 @@ def parse_args() -> argparse.Namespace:
         parser.error("--num-threads must be positive")
     if args.progress_interval_ms <= 0:
         parser.error("--progress-interval-ms must be positive")
-    for name in (
-        "i_start_side1",
-        "i_end_side1",
-        "i_start_side2",
-        "i_end_side2",
-    ):
+    if args.looped_fallback_until <= 0:
+        parser.error("--looped-fallback-until must be positive")
+    for name in ("i_start_side1", "i_start_side2"):
         value = getattr(args, name)
         if value is not None and value < 0:
             parser.error(f"--{name.replace('_', '-')} must be non-negative")
@@ -205,10 +212,19 @@ def parse_args() -> argparse.Namespace:
         )
     if interval_mode and not args.sample_instructions:
         parser.error("interval boundary mode requires --sample-instructions")
-    if interval_mode and args.i_end_side1 < args.i_start_side1:
-        parser.error("--i-end-side1 must be >= --i-start-side1")
-    if interval_mode and args.i_end_side2 < args.i_start_side2:
-        parser.error("--i-end-side2 must be >= --i-start-side2")
+    if interval_mode:
+        # A negative I_end means: this benchmark is missing an instruction
+        # interval and should be handled as a wall-time/loopForever fallback.
+        # The corresponding I_start must be 0 because there is no instruction
+        # threshold to fast-forward to.
+        if args.i_end_side1 >= 0 and args.i_end_side1 < args.i_start_side1:
+            parser.error("--i-end-side1 must be >= --i-start-side1, or negative for wall-time fallback")
+        if args.i_end_side2 >= 0 and args.i_end_side2 < args.i_start_side2:
+            parser.error("--i-end-side2 must be >= --i-start-side2, or negative for wall-time fallback")
+        if args.i_end_side1 < 0 and args.i_start_side1 != 0:
+            parser.error("--i-start-side1 must be 0 when --i-end-side1 is negative")
+        if args.i_end_side2 < 0 and args.i_start_side2 != 0:
+            parser.error("--i-start-side2 must be 0 when --i-end-side2 is negative")
     if args.sync_interval_windows and not interval_mode:
         parser.error("--sync-interval-windows requires the four --i-start/--i-end flags")
     if interval_mode and ((args.loop_until1 is not None and args.loop_until1 > 0) or (args.loop_until2 is not None and args.loop_until2 > 0)):

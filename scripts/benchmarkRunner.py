@@ -42,7 +42,7 @@ def getCommandLineArguments():
             help='run the benchmark anyway even if the output directory already exists')
     parser.add_argument('-pre', '--pre_run', action='store_true', default=False,
             help='run the pre_run script')
-    parser.add_argument('-post', '--post_run', action='store_true', default=True,
+    parser.add_argument('-post', '--post_run', action='store_true', default=False,
             help='run the post_run script')
     parser.add_argument('-bench', '--benchmark_dir', type=str, required=True,
             help='the benchmark directory, must contain three bash scripts: pre_run.sh, run.sh, and post_run.sh')

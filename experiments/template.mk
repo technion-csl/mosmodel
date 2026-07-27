@@ -12,10 +12,11 @@ else
 endif
 
 # ---------- Templates ----------
+
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
 	echo ========== [INFO] allocate/reserve hugepages ==========
-	$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
+	MOSALLOC_KEEP_HUGEPAGE_POOL=1 $$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
 	echo ========== [INFO] start producing ST run: $$@ ==========
 	$$(PYTHON) -m scripts.mosmodel_controller.run_single \
 		--benchmark "$$(BENCHMARK_PATH)" \
@@ -25,8 +26,8 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--num-threads "$$(NUMBER_OF_THREADS)" \
 		--loop-until "$$(MEASURE_TIMEOUT1)" \
 		--prefix "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS)" \
-		--submit "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
-		$(RUN_SINGLE_EXTRA_ARGS)
+		--submit "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" $(call measurement_run_single_args,$(1)) \
+		$$(RUN_SINGLE_EXTRA_ARGS)
 endef
 
 define VANILLA_template =

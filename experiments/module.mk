@@ -87,15 +87,15 @@ else ifeq ($(STOP_POLICY),INSTRUCTION_INTERVAL)
 	MEASURE_TIMEOUT2 ?= -1
 	RUN_PAIR_EXTRA_ARGS := \
 		--sample-instructions \
-		--i-start-side1 $$(I_START1) \
-		--i-end-side1   $$(I_END1) \
-		--i-start-side2 $$(I_START2) \
-		--i-end-side2   $$(I_END2) \
+		--i-start-side1 $(I_START1) \
+		--i-end-side1   $(I_END1) \
+		--i-start-side2 $(I_START2) \
+		--i-end-side2   $(I_END2) \
 		--sync-interval-windows
 	RUN_SINGLE_EXTRA_ARGS := \
 		--sample-instructions \
-		--i-start $$(I_START1) \
-		--i-end   $$(I_END1)
+		--i-start $(I_START1) \
+		--i-end   $(I_END1)
 else
 $(error Unsupported STOP_POLICY='$(STOP_POLICY)')
 endif

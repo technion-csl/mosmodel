@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..benchmarkCore import BenchmarkRun
+from .criu_restore import restore_stopped
 from .finalize import ensure_parent, finalize_run
 from .launcher import (
     LaunchedSide,
@@ -55,6 +56,7 @@ class SingleController:
         self.args = args
         self.benchmarks_root = benchmarks_root
         self.run_spec = run
+        self.criu_mode = bool(self.args.checkpoint_dir)
         self.proc: Optional[LaunchedSide] = None
         self.monitor = WrappedPerfInstructionsMonitor(
             LiveProgressConfig(
@@ -75,17 +77,26 @@ class SingleController:
         self.measurement_enabled = False
         self.interval_measurement_started = False
         self.interval_mode = self.args.i_start is not None and self.args.i_end is not None
-        self.interval_state = (
-            SingleIntervalState(
+        if self.interval_mode and self.criu_mode:
+            self.interval_state = SingleIntervalState(
+                label="side1",
+                start_target=0,
+                end_target=self.args.i_end - self.args.i_start,
+                start_seen=True,
+                start_observed_instructions=0,
+                start_observed_monotonic_sec=time.monotonic(),
+            )
+        elif self.interval_mode:
+            self.interval_state = SingleIntervalState(
                 label="side1",
                 start_target=self.args.i_start,
                 end_target=self.args.i_end,
             )
-            if self.interval_mode
-            else None
-        )
+        else:
+            self.interval_state = None
         self._cleanup_started = False
-        self.debug_log_path = Path(self.args.run_dir) / "controller_debug.log"
+        debug_root = Path(self.args.output_dir) if self.criu_mode else Path(self.args.run_dir)
+        self.debug_log_path = debug_root / "controller_debug.log"
         ensure_parent(self.debug_log_path)
         try:
             self.debug_log_path.unlink()
@@ -116,7 +127,7 @@ class SingleController:
                 sig_name = str(signum)
             self._debug_log(f"received {sig_name}, terminating single side")
             self._disable_measurement_if_needed()
-            terminate_and_wait(self.proc, grace_sec=self.args.termination_grace_sec)
+            terminate_and_wait(self.proc)
             self.join_monitors()
             self.print_interval_boundaries()
             self.print_sampled_instructions()
@@ -128,6 +139,8 @@ class SingleController:
         signal.signal(signal.SIGTERM, cleanup_on_signal)
 
     def prerun(self) -> None:
+        if self.criu_mode:
+            return
         print("running side1 prerun")
         self.run_spec.run.prerun()
 
@@ -137,6 +150,10 @@ class SingleController:
         return launched.benchmark_pid
 
     def launch(self) -> None:
+        if self.criu_mode:
+            self._launch_criu()
+            return
+
         try:
             self.proc = launch_run_with_start_barrier(
                 self.run_spec.run,
@@ -149,10 +166,8 @@ class SingleController:
                 self.monitor.attach_to_pid(side1_pid)
                 self.monitor.enable()
 
-            # In instruction-interval mode, follow the SMT controller behavior:
-            # only attach/enable measurement perf after I_start.  Before I_start
-            # we run only the lightweight instruction sampler.  This avoids
-            # emitting pre-interval perf rows such as <not counted>.
+            # In instruction-interval mode, measurement perf is attached only
+            # after I_start.
             release_benchmark(self.proc)
             self._debug_log(
                 "launch sample path "
@@ -160,7 +175,38 @@ class SingleController:
                 f"side1_benchmark_pgid={getattr(self.proc, 'benchmark_pgid', None)}"
             )
         except Exception:
-            terminate_and_wait(self.proc, grace_sec=1.0)
+            terminate_and_wait(self.proc)
+            self.join_monitors()
+            raise
+
+    def _launch_criu(self) -> None:
+        try:
+            restored = restore_stopped(
+                checkpoint_dir=Path(self.args.checkpoint_dir),
+                output_dir=Path(self.args.output_dir),
+                prefix=self.args.prefix,
+            )
+            self.proc = restored.as_launched_side()
+
+            if self.args.sample_instructions:
+                self.monitor.attach_to_pid(restored.benchmark_pid)
+            self.measurement.attach_to_pid(restored.benchmark_pid)
+            self.measurement_attached = True
+
+            if self.args.sample_instructions:
+                self.monitor.enable()
+            self._enable_measurement_if_needed()
+            self.interval_measurement_started = True
+
+            if not signal_benchmark_group(self.proc, signal.SIGCONT):
+                raise RuntimeError("failed to resume restored benchmark process group")
+            self._debug_log(
+                "CRIU interval resumed after restore placement and perf enable: "
+                f"target_pid={restored.benchmark_pid} "
+                f"target_instructions={self.args.i_end - self.args.i_start}"
+            )
+        except Exception:
+            terminate_and_wait(self.proc)
             self.join_monitors()
             raise
 
@@ -273,7 +319,10 @@ class SingleController:
             return 1, False
 
         while True:
-            rc = self.proc.proc.poll()
+            if self.criu_mode and self.proc.benchmark_pid is not None:
+                rc = None if Path(f"/proc/{self.proc.benchmark_pid}").exists() else 0
+            else:
+                rc = self.proc.proc.poll()
             current_instructions = self.monitor.total_instructions()
 
             if self.interval_mode:
@@ -344,10 +393,7 @@ class SingleController:
             rc, interval_completed = self.wait_with_sampled_instruction_control()
             if interval_completed:
                 self._disable_measurement_if_needed()
-                term_rc = terminate_and_wait(
-                    self.proc,
-                    grace_sec=self.args.termination_grace_sec,
-                )
+                term_rc = terminate_and_wait(self.proc)
                 if rc is None:
                     rc = term_rc
             else:
@@ -372,13 +418,14 @@ class SingleController:
 
         if success:
             if interval_completed:
-                # The benchmark was intentionally terminated at I_end, so output
-                # validation/postrun is not meaningful for interval runs.
-                self.run_spec.run.move_files_to_output_dir()
-                self.run_spec.run.clean_output_dir(
-                    self.args.clean_threshold,
-                    self.args.exclude_files,
-                )
+                # The benchmark was intentionally terminated at I_end. Do not move
+                # files from the restored checkpoint copy into the measurement output.
+                if not self.criu_mode:
+                    self.run_spec.run.move_files_to_output_dir()
+                    self.run_spec.run.clean_output_dir(
+                        self.args.clean_threshold,
+                        self.args.exclude_files,
+                    )
             else:
                 finalize_run(
                     self.run_spec.run,
@@ -387,14 +434,15 @@ class SingleController:
                     exclude_files=self.args.exclude_files,
                 )
             self.touch_output_target()
-        else:
+        elif not self.criu_mode:
             self.run_spec.run.move_files_to_output_dir()
 
         return 0 if success else (rc if rc is not None else 1)
 
 
 def build_single_run(args: argparse.Namespace, benchmarks_root: Path) -> SingleRun:
-    run = BenchmarkRun(args.benchmark, str(Path(args.run_dir)), str(Path(args.output_dir)))
+    run_dir = Path(args.run_dir) / "work" if args.checkpoint_dir else Path(args.run_dir)
+    run = BenchmarkRun(args.benchmark, str(run_dir), str(Path(args.output_dir)))
     cmd = compose_submit_command(
         args.prefix,
         args.submit,

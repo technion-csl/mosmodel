@@ -37,12 +37,20 @@ class WrappedPerfInstructionsMonitor:
         self._ack_read_fd: Optional[int] = None
 
     def attach_to_pid(self, target_pid: int) -> None:
+        self.attach_to_pids([target_pid])
+
+    def attach_to_pids(self, target_pids: Sequence[int]) -> None:
         if self._proc is not None:
             raise RuntimeError(f"progress monitor already attached for {self.config.label}")
         if self.config.interval_ms <= 0:
             raise RuntimeError(
                 f"invalid progress interval for {self.config.label}: {self.config.interval_ms}"
             )
+
+        pid_list = sorted({int(pid) for pid in target_pids if int(pid) > 0})
+        if not pid_list:
+            raise RuntimeError(f"no target pids supplied for progress perf {self.config.label}")
+        pid_arg = ",".join(str(pid) for pid in pid_list)
 
         ctl_read_fd, ctl_write_fd = os.pipe()
         ack_read_fd, ack_write_fd = os.pipe()
@@ -60,7 +68,7 @@ class WrappedPerfInstructionsMonitor:
             "--delay=-1",
             f"--control=fd:{ctl_read_fd},{ack_write_fd}",
             "-p",
-            str(target_pid),
+            pid_arg,
         ]
 
         print(f"[progress perf] spawn {self.config.label}: {' '.join(cmd)}")

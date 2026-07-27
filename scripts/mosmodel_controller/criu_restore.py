@@ -28,14 +28,37 @@ def _run_privileged(command: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def copy_checkpoint(checkpoint_dir: Path, run_dir: Path) -> Path:
-    checkpoint_dir = checkpoint_dir.resolve()
-    run_dir = run_dir.resolve()
-    run_dir.mkdir(parents=True, exist_ok=True)
-    result = _run_privileged(["cp", "-a", f"{checkpoint_dir}/.", str(run_dir)])
+def _run_privileged_checked(command: list[str]) -> None:
+    result = _run_privileged(command)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-    return run_dir
+
+
+def reset_restore_workspace(
+    checkpoint_archive_dir: Path,
+    checkpoint_dir: Path,
+) -> None:
+    checkpoint_archive_dir = checkpoint_archive_dir.resolve()
+    checkpoint_dir = checkpoint_dir.resolve()
+
+    if checkpoint_archive_dir == checkpoint_dir:
+        raise RuntimeError(
+            "checkpoint archive and restore workspace must be different directories"
+        )
+    if not (checkpoint_archive_dir / "checkpoint.done").is_file():
+        raise FileNotFoundError(
+            f"checkpoint archive is incomplete: {checkpoint_archive_dir}"
+        )
+
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("work", "create-output"):
+        source = checkpoint_archive_dir / name
+        destination = checkpoint_dir / name
+        if not source.is_dir():
+            raise FileNotFoundError(f"missing checkpoint directory: {source}")
+
+        _run_privileged_checked(["rm", "-rf", str(destination)])
+        _run_privileged_checked(["cp", "-a", str(source), str(destination)])
 
 
 def _read_text(path: Path) -> str:
@@ -125,15 +148,21 @@ def _kill_restore(
 def restore_stopped(
     *,
     checkpoint_dir: Path,
+    checkpoint_archive_dir: Path,
     output_dir: Path,
     prefix: str,
 ) -> StoppedRestore:
     checkpoint_dir = checkpoint_dir.resolve()
+    checkpoint_archive_dir = checkpoint_archive_dir.resolve()
     images_dir = checkpoint_dir / "images"
     if not (checkpoint_dir / "checkpoint.done").is_file():
         raise FileNotFoundError(f"checkpoint is incomplete: {checkpoint_dir}")
     if not images_dir.is_dir():
         raise FileNotFoundError(f"missing CRIU images: {images_dir}")
+
+    # CRIU images and checkpoint metadata remain unchanged. Reset only the
+    # filesystem state that a restored repeat can modify.
+    reset_restore_workspace(checkpoint_archive_dir, checkpoint_dir)
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,7 @@ include $(EXPERIMENTS_ROOT)/criu_single_page_size/module.mk
 
 measurement_run_single_args =
 ifeq ($(CRIU_RUN),1)
-measurement_run_single_args = --checkpoint-dir "$(call criu_sps_checkpoint_dir,$(1))"
+measurement_run_single_args = --checkpoint-dir "$(call criu_sps_checkpoint_dir,$(1))" --checkpoint-archive-dir "$(CRIU_CHECKPOINT_ARCHIVE_ROOT)/$(CRIU_BENCHMARK_ID)/$(1)"
 endif
 
 include $(EXPERIMENTS_TEMPLATE)

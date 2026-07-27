@@ -183,6 +183,7 @@ class SingleController:
         try:
             restored = restore_stopped(
                 checkpoint_dir=Path(self.args.checkpoint_dir),
+                checkpoint_archive_dir=Path(self.args.checkpoint_archive_dir),
                 output_dir=Path(self.args.output_dir),
                 prefix=self.args.prefix,
             )

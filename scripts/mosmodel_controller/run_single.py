@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 
 from .cli import find_benchmarks_root
-from .criu_restore import copy_checkpoint
 from .single_controller import SingleController, build_single_run
 
 
@@ -23,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-dir",
         required=True,
-        help="Run directory. CRIU mode copies the checkpoint here before restore.",
+        help="Run directory for repeat-specific temporary and measurement files.",
     )
     parser.add_argument("--output-dir", required=True, help="Output directory for the benchmark")
     parser.add_argument(
@@ -74,7 +73,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint-dir",
         default=None,
-        help="Layout-specific checkpoint directory. Enables CRIU restore mode.",
+        help=(
+            "Canonical layout-specific checkpoint directory. "
+            "Enables CRIU restore mode."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-archive-dir",
+        default=None,
+        help=(
+            "Immutable archived checkpoint used to reset work/ and "
+            "create-output/ before each restore."
+        ),
     )
     args = parser.parse_args()
 
@@ -100,11 +110,18 @@ def parse_args() -> argparse.Namespace:
 
     criu_mode = args.checkpoint_dir is not None
     if criu_mode:
+        if args.checkpoint_archive_dir is None:
+            parser.error("CRIU mode requires --checkpoint-archive-dir")
         if not interval_mode:
             parser.error("CRIU mode requires --i-start and --i-end")
         if args.i_end <= args.i_start:
             parser.error("CRIU mode requires --i-end greater than --i-start")
         args.checkpoint_dir = str(Path(args.checkpoint_dir).resolve())
+        args.checkpoint_archive_dir = str(
+            Path(args.checkpoint_archive_dir).resolve()
+        )
+    elif args.checkpoint_archive_dir is not None:
+        parser.error("--checkpoint-archive-dir requires --checkpoint-dir")
 
     args.output_target = str(Path(args.output_target).resolve())
     args.output_dir = str(Path(args.output_dir).resolve())
@@ -115,10 +132,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.checkpoint_dir:
-        args.checkpoint_dir = str(
-            copy_checkpoint(Path(args.checkpoint_dir), Path(args.run_dir))
-        )
     benchmarks_root = find_benchmarks_root()
     run = build_single_run(args, benchmarks_root)
     controller = SingleController(args, benchmarks_root, run)

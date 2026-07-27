@@ -7,16 +7,25 @@ SINGLE_PAGE_SIZE_EXPERIMENT := $(MODULE_NAME)
 EXTRA_ARGS_FOR_MOSALLOC := --analyze
 CRIU_RUN ?= 0
 
+# I_START1=0 uses the normal native launch path even when CRIU_RUN=1.
+# No checkpoint is created or restored for that interval.
+CRIU_RESTORE_RUN := 0
+ifeq ($(CRIU_RUN),1)
+ifneq ($(strip $(I_START1)),0)
+CRIU_RESTORE_RUN := 1
+endif
+endif
+
 include $(EXPERIMENTS_ROOT)/criu_single_page_size/module.mk
 
 measurement_run_single_args =
-ifeq ($(CRIU_RUN),1)
+ifeq ($(CRIU_RESTORE_RUN),1)
 measurement_run_single_args = --checkpoint-dir "$(call criu_sps_checkpoint_dir,$(1))" --checkpoint-archive-dir "$(CRIU_CHECKPOINT_ARCHIVE_ROOT)/$(CRIU_BENCHMARK_ID)/$(1)"
 endif
 
 include $(EXPERIMENTS_TEMPLATE)
 
-ifeq ($(CRIU_RUN),1)
+ifeq ($(CRIU_RESTORE_RUN),1)
 define SINGLE_PAGE_SIZE_CRIU_CHECKPOINT_dependency
 $(foreach repeat,$(REPEATS),$(EXPERIMENT_DIR)/$(1)/$(repeat)/perf.out): $(call criu_sps_checkpoint_done,$(1))
 endef
@@ -34,5 +43,6 @@ $(MODULE_NAME)/clean:
 
 # undefine local variables to allow next makefiles to use their defaults
 undefine measurement_run_single_args
+undefine CRIU_RESTORE_RUN
 undefine EXTRA_ARGS_FOR_MOSALLOC
 undefine LAYOUTS

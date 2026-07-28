@@ -4,7 +4,6 @@ import os
 import select
 import subprocess
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence, TextIO
@@ -37,20 +36,20 @@ class WrappedPerfInstructionsMonitor:
         self._ack_read_fd: Optional[int] = None
 
     def attach_to_pid(self, target_pid: int) -> None:
-        self.attach_to_pids([target_pid])
+        self._attach(["-p", str(int(target_pid))])
 
-    def attach_to_pids(self, target_pids: Sequence[int]) -> None:
+    def attach_to_cgroup(self, cgroup_name: str) -> None:
+        if not cgroup_name.strip():
+            raise RuntimeError(f"empty cgroup name for {self.config.label}")
+        self._attach(["-a", "-G", cgroup_name])
+
+    def _attach(self, target_args: list[str]) -> None:
         if self._proc is not None:
             raise RuntimeError(f"progress monitor already attached for {self.config.label}")
         if self.config.interval_ms <= 0:
             raise RuntimeError(
                 f"invalid progress interval for {self.config.label}: {self.config.interval_ms}"
             )
-
-        pid_list = sorted({int(pid) for pid in target_pids if int(pid) > 0})
-        if not pid_list:
-            raise RuntimeError(f"no target pids supplied for progress perf {self.config.label}")
-        pid_arg = ",".join(str(pid) for pid in pid_list)
 
         ctl_read_fd, ctl_write_fd = os.pipe()
         ack_read_fd, ack_write_fd = os.pipe()
@@ -67,8 +66,7 @@ class WrappedPerfInstructionsMonitor:
             "--no-big-num",
             "--delay=-1",
             f"--control=fd:{ctl_read_fd},{ack_write_fd}",
-            "-p",
-            pid_arg,
+            *target_args,
         ]
 
         print(f"[progress perf] spawn {self.config.label}: {' '.join(cmd)}")
@@ -99,7 +97,7 @@ class WrappedPerfInstructionsMonitor:
         )
         self._reader_thread.start()
 
-    def enable(self, timeout_sec: float = 5.0) -> None:
+    def enable(self) -> None:
         if self._proc is None or self._ctl_write_fd is None or self._ack_read_fd is None:
             raise RuntimeError(f"progress monitor not attached for {self.config.label}")
         if self._proc.poll() is not None:
@@ -108,16 +106,19 @@ class WrappedPerfInstructionsMonitor:
             )
 
         os.write(self._ctl_write_fd, b"enable\n")
-        deadline = time.monotonic() + timeout_sec
         chunks: list[bytes] = []
-        while time.monotonic() < deadline:
-            remaining = max(0.0, deadline - time.monotonic())
-            ready, _, _ = select.select([self._ack_read_fd], [], [], remaining)
-            if not ready:
-                continue
+        while True:
+            select.select([self._ack_read_fd], [], [])
             chunk = os.read(self._ack_read_fd, 4096)
             if not chunk:
-                break
+                returncode = self._proc.wait()
+                note = self.last_error_line()
+                if note:
+                    raise RuntimeError(f"failed to enable perf for {self.config.label}: {note}")
+                raise RuntimeError(
+                    f"perf exited while waiting for enable ack for {self.config.label} "
+                    f"rc={returncode}"
+                )
             chunks.append(chunk)
             data = b"".join(chunks)
             if b"\n" not in data:
@@ -128,11 +129,6 @@ class WrappedPerfInstructionsMonitor:
                     f"unexpected perf ack for {self.config.label}: {line.decode(errors='replace')!r}"
                 )
             return
-
-        note = self.last_error_line()
-        if note:
-            raise RuntimeError(f"failed to enable perf for {self.config.label}: {note}")
-        raise RuntimeError(f"timed out waiting for perf enable ack for {self.config.label}")
 
     def _reader_loop(self, perf_stream: TextIO) -> None:
         debug_path = f"/tmp/progress_perf_{self.config.label}.log"
@@ -195,7 +191,7 @@ class WrappedPerfInstructionsMonitor:
     def last_error_line(self) -> Optional[str]:
         return self._last_error_line
 
-    def stop(self, timeout: float = 5.0) -> None:
+    def stop(self) -> None:
         if self._ctl_write_fd is not None:
             try:
                 os.close(self._ctl_write_fd)
@@ -212,17 +208,10 @@ class WrappedPerfInstructionsMonitor:
 
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
-            try:
-                self._proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                try:
-                    self._proc.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    pass
+            self._proc.wait()
 
         if self._reader_thread is not None:
-            self._reader_thread.join(timeout=timeout)
+            self._reader_thread.join()
 
 
 class DetachedMeasurementPerfSession:
@@ -245,17 +234,24 @@ class DetachedMeasurementPerfSession:
         self.attach_to_pids([target_pid])
 
     def attach_to_pids(self, target_pids: Sequence[int]) -> None:
+        pid_list = [int(pid) for pid in target_pids if int(pid) > 0]
+        if not pid_list:
+            raise RuntimeError(f"no target pids supplied for measurement perf {self.config.label}")
+        pid_arg = ",".join(str(pid) for pid in pid_list)
+        self._attach(["-p", pid_arg], f"target_pids={pid_arg}")
+
+    def attach_to_cgroup(self, cgroup_name: str) -> None:
+        if not cgroup_name.strip():
+            raise RuntimeError(f"empty cgroup name for measurement perf {self.config.label}")
+        self._attach(["-a", "-G", cgroup_name], f"cgroup={cgroup_name}")
+
+    def _attach(self, target_args: list[str], target_description: str) -> None:
         if self._proc is not None:
             raise RuntimeError(f"measurement perf already attached for {self.config.label}")
         if self.config.interval_ms <= 0:
             raise RuntimeError(
                 f"invalid measurement interval for {self.config.label}: {self.config.interval_ms}"
             )
-
-        pid_list = [int(pid) for pid in target_pids if int(pid) > 0]
-        if not pid_list:
-            raise RuntimeError(f"no target pids supplied for measurement perf {self.config.label}")
-        pid_arg = ",".join(str(pid) for pid in pid_list)
 
         self.config.output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -265,7 +261,7 @@ class DetachedMeasurementPerfSession:
 
         print(
             f"[measurement perf] attach {self.config.label}: "
-            f"target_pids={pid_arg} interval_ms={self.config.interval_ms} "
+            f"{target_description} interval_ms={self.config.interval_ms} "
             f"output={self.config.output_path}"
         )
 
@@ -280,8 +276,7 @@ class DetachedMeasurementPerfSession:
             f"--event={self.EVENTS}",
             "--delay=-1",
             f"--control=fd:{ctl_read_fd},{ack_write_fd}",
-            "-p",
-            pid_arg,
+            *target_args,
         ]
         print(f"[measurement perf] spawn {self.config.label}: {' '.join(cmd)}")
         try:
@@ -328,7 +323,7 @@ class DetachedMeasurementPerfSession:
                 if "failed" in lowered or "error:" in lowered or "permission denied" in lowered:
                     self._last_error_line = line
 
-    def _command(self, verb: str, timeout_sec: float = 5.0) -> None:
+    def _command(self, verb: str) -> None:
         if self._proc is None or self._ctl_write_fd is None or self._ack_read_fd is None:
             raise RuntimeError(f"measurement perf not attached for {self.config.label}")
 
@@ -352,16 +347,27 @@ class DetachedMeasurementPerfSession:
             f"via ctl_fd={self._ctl_write_fd} awaiting ack_fd={self._ack_read_fd}"
         )
         os.write(self._ctl_write_fd, f"{verb}\n".encode())
-        deadline = time.monotonic() + timeout_sec
         chunks: list[bytes] = []
-        while time.monotonic() < deadline:
-            remaining = max(0.0, deadline - time.monotonic())
-            ready, _, _ = select.select([self._ack_read_fd], [], [], remaining)
-            if not ready:
-                continue
+        while True:
+            select.select([self._ack_read_fd], [], [])
             chunk = os.read(self._ack_read_fd, 4096)
             if not chunk:
-                break
+                alive_rc = self._proc.wait()
+                if verb == "disable" and alive_rc == 0:
+                    print(
+                        f"[measurement perf] {self.config.label}: perf exited cleanly while "
+                        f"waiting for {verb} ack rc={alive_rc} perf_pid={self._proc.pid}"
+                    )
+                    return
+                note = self.last_error_line()
+                if note:
+                    raise RuntimeError(
+                        f"failed to {verb} measurement perf for {self.config.label}: {note}"
+                    )
+                raise RuntimeError(
+                    f"measurement perf exited while waiting for {verb} ack for "
+                    f"{self.config.label} rc={alive_rc} perf_pid={self._proc.pid}"
+                )
             chunks.append(chunk)
             data = b"".join(chunks)
             print(
@@ -393,36 +399,16 @@ class DetachedMeasurementPerfSession:
                 )
             return
 
-        alive_rc = self._proc.poll()
-        if alive_rc is not None:
-            if verb == "disable" and alive_rc == 0:
-                print(
-                    f"[measurement perf] {self.config.label}: perf exited cleanly while waiting "
-                    f"for {verb} ack rc={alive_rc} perf_pid={self._proc.pid}"
-                )
-                return
-            raise RuntimeError(
-                f"measurement perf exited while waiting for {verb} ack for {self.config.label} "
-                f"rc={alive_rc} perf_pid={self._proc.pid}"
-            )
+    def enable(self) -> None:
+        self._command("enable")
 
-        note = self.last_error_line()
-        if note:
-            raise RuntimeError(f"failed to {verb} measurement perf for {self.config.label}: {note}")
-        raise RuntimeError(
-            f"timed out waiting for measurement perf {verb} ack for {self.config.label}"
-        )
-
-    def enable(self, timeout_sec: float = 5.0) -> None:
-        self._command("enable", timeout_sec=timeout_sec)
-
-    def disable(self, timeout_sec: float = 5.0) -> None:
-        self._command("disable", timeout_sec=timeout_sec)
+    def disable(self) -> None:
+        self._command("disable")
 
     def last_error_line(self) -> Optional[str]:
         return self._last_error_line
 
-    def stop(self, timeout: float = 5.0) -> None:
+    def stop(self) -> None:
         if self._ctl_write_fd is not None:
             try:
                 os.close(self._ctl_write_fd)
@@ -439,14 +425,7 @@ class DetachedMeasurementPerfSession:
 
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
-            try:
-                self._proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                try:
-                    self._proc.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    pass
+            self._proc.wait()
 
         if self._reader_thread is not None:
-            self._reader_thread.join(timeout=timeout)
+            self._reader_thread.join()

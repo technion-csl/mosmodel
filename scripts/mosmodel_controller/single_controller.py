@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..benchmarkCore import BenchmarkRun
+from .cgroup import CgroupV2
 from .criu_restore import restore_stopped
 from .finalize import ensure_parent, finalize_run
 from .launcher import (
@@ -58,6 +59,8 @@ class SingleController:
         self.run_spec = run
         self.criu_mode = bool(self.args.checkpoint_dir)
         self.proc: Optional[LaunchedSide] = None
+        self.criu_cgroup: Optional[CgroupV2] = None
+        self.criu_cgroup_frozen = False
         self.monitor = WrappedPerfInstructionsMonitor(
             LiveProgressConfig(
                 perf_binary=self.args.progress_perf_binary,
@@ -126,9 +129,12 @@ class SingleController:
             except ValueError:
                 sig_name = str(signum)
             self._debug_log(f"received {sig_name}, terminating single side")
-            self._disable_measurement_if_needed()
-            terminate_and_wait(self.proc)
-            self.join_monitors()
+            try:
+                self._disable_measurement_if_needed()
+            finally:
+                self._terminate_workload()
+                self.join_monitors()
+                self._remove_criu_cgroup()
             self.print_interval_boundaries()
             self.print_sampled_instructions()
             self.print_measurement_perf_notes()
@@ -188,10 +194,11 @@ class SingleController:
                 prefix=self.args.prefix,
             )
             self.proc = restored.as_launched_side()
+            self.criu_cgroup = restored.cgroup
 
             if self.args.sample_instructions:
-                self.monitor.attach_to_pid(restored.benchmark_pid)
-            self.measurement.attach_to_pid(restored.benchmark_pid)
+                self.monitor.attach_to_cgroup(restored.cgroup.perf_name)
+            self.measurement.attach_to_cgroup(restored.cgroup.perf_name)
             self.measurement_attached = True
 
             if self.args.sample_instructions:
@@ -202,14 +209,48 @@ class SingleController:
             if not signal_benchmark_group(self.proc, signal.SIGCONT):
                 raise RuntimeError("failed to resume restored benchmark process group")
             self._debug_log(
-                "CRIU interval resumed after restore placement and perf enable: "
-                f"target_pid={restored.benchmark_pid} "
+                "CRIU interval resumed after cgroup placement and perf enable: "
+                f"cgroup={restored.cgroup.perf_name} "
+                f"root_pid={restored.root_pid} "
                 f"target_instructions={self.args.i_end - self.args.i_start}"
             )
         except Exception:
-            terminate_and_wait(self.proc)
+            self._terminate_workload()
             self.join_monitors()
+            self._remove_criu_cgroup()
             raise
+
+    def _freeze_criu_cgroup_if_needed(self) -> None:
+        if not self.criu_mode or self.criu_cgroup is None or self.criu_cgroup_frozen:
+            return
+        self.criu_cgroup.freeze()
+        self.criu_cgroup_frozen = True
+        self._debug_log(
+            f"[interval boundary] side1 cgroup frozen at I_end: "
+            f"{self.criu_cgroup.perf_name}"
+        )
+
+    def _terminate_workload(self) -> Optional[int]:
+        if self.criu_cgroup is not None:
+            try:
+                self.criu_cgroup.kill()
+            except Exception as exc:
+                self._debug_log(f"WARNING: failed to kill CRIU cgroup: {exc}")
+        return terminate_and_wait(self.proc, grace_sec=0.0 if self.criu_mode else 2.0)
+
+    def _remove_criu_cgroup(self) -> None:
+        if self.criu_cgroup is None:
+            return
+        try:
+            if self.criu_cgroup.is_populated():
+                self.criu_cgroup.kill()
+            self.criu_cgroup.remove()
+            self._debug_log(f"removed CRIU cgroup {self.criu_cgroup.perf_name}")
+        except Exception as exc:
+            self._debug_log(f"WARNING: failed to remove CRIU cgroup: {exc}")
+        finally:
+            self.criu_cgroup = None
+            self.criu_cgroup_frozen = False
 
     def _attach_measurement_if_needed(self) -> None:
         if self.measurement_attached:
@@ -286,8 +327,8 @@ class SingleController:
 
     def join_monitors(self) -> None:
         if self.args.sample_instructions:
-            self.monitor.stop(timeout=5.0)
-        self.measurement.stop(timeout=5.0)
+            self.monitor.stop()
+        self.measurement.stop()
 
     def _update_interval_state(self, current_instructions: int, now_monotonic: float) -> None:
         state = self.interval_state
@@ -310,6 +351,7 @@ class SingleController:
                 f"[interval boundary] side1 reached I_end at "
                 f"instructions={current_instructions} threshold={state.end_target}"
             )
+            self._freeze_criu_cgroup_if_needed()
             self._disable_measurement_if_needed()
 
     def _interval_completed(self) -> bool:
@@ -320,8 +362,8 @@ class SingleController:
             return 1, False
 
         while True:
-            if self.criu_mode and self.proc.benchmark_pid is not None:
-                rc = None if Path(f"/proc/{self.proc.benchmark_pid}").exists() else 0
+            if self.criu_mode and self.criu_cgroup is not None:
+                rc = None if self.criu_cgroup.is_populated() else 0
             else:
                 rc = self.proc.proc.poll()
             current_instructions = self.monitor.total_instructions()
@@ -394,17 +436,22 @@ class SingleController:
             rc, interval_completed = self.wait_with_sampled_instruction_control()
             if interval_completed:
                 self._disable_measurement_if_needed()
-                term_rc = terminate_and_wait(self.proc)
+                term_rc = self._terminate_workload()
                 if rc is None:
                     rc = term_rc
             else:
-                if rc is None and self.proc is not None:
+                if self.criu_mode:
+                    term_rc = self._terminate_workload()
+                    if rc is None:
+                        rc = term_rc
+                elif rc is None and self.proc is not None:
                     rc = self.proc.proc.wait()
         else:
             rc = self.proc.proc.wait() if self.proc is not None else 1
 
         self._disable_measurement_if_needed()
         self.join_monitors()
+        self._remove_criu_cgroup()
         print(f"[run rc] side1={rc}")
         self.print_interval_boundaries()
         self.print_sampled_instructions()

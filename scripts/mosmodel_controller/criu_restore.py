@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .cgroup import CgroupV2, process_tree_pids
 from .launcher import LaunchedSide
 
 
@@ -106,7 +107,7 @@ def wait_until_stopped(pid: int) -> None:
     while True:
         text = stat_path.read_text(encoding="utf-8")
         state = text[text.rfind(")") + 2 :].split()[0]
-        if state in {"T", "t"}:
+        if state in {"T", "t", "Z", "X", "x"}:
             return
         time.sleep(0.001)
 
@@ -118,6 +119,7 @@ class StoppedRestore:
     pgid: int
     sid: int
     criu_process: subprocess.Popen[str]
+    cgroup: CgroupV2
 
     def as_launched_side(self) -> LaunchedSide:
         return LaunchedSide(
@@ -132,7 +134,14 @@ def _kill_restore(
     root_pid: Optional[int],
     pgid: Optional[int],
     criu_process: subprocess.Popen[str],
+    cgroup: Optional[CgroupV2] = None,
 ) -> None:
+    if cgroup is not None:
+        try:
+            cgroup.kill_and_remove()
+        except Exception:
+            pass
+
     try:
         if pgid is not None:
             os.killpg(pgid, signal.SIGKILL)
@@ -195,6 +204,7 @@ def restore_stopped(
 
     root_pid: Optional[int] = None
     pgid: Optional[int] = None
+    cgroup: Optional[CgroupV2] = None
     try:
         while not pidfile.is_file():
             returncode = criu_process.poll()
@@ -222,7 +232,26 @@ def restore_stopped(
                 time.sleep(0.001)
 
         pgid, sid = _read_process_group(root_pid)
-        return StoppedRestore(root_pid, benchmark_pid, pgid, sid, criu_process)
+
+        restored_pids = process_tree_pids(root_pid)
+        for restored_pid in restored_pids:
+            wait_until_stopped(restored_pid)
+
+        cgroup = CgroupV2.create_for_pid(root_pid, str(output_dir))
+        cgroup.add_pids(restored_pids)
+        print(
+            f"[CRIU cgroup] created {cgroup.perf_name}: "
+            f"root_pid={root_pid} restored_pids={restored_pids}"
+        )
+
+        return StoppedRestore(
+            root_pid,
+            benchmark_pid,
+            pgid,
+            sid,
+            criu_process,
+            cgroup,
+        )
     except Exception:
-        _kill_restore(root_pid, pgid, criu_process)
+        _kill_restore(root_pid, pgid, criu_process, cgroup)
         raise

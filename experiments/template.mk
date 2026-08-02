@@ -26,7 +26,7 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | exper
 		--num-threads "$$(NUMBER_OF_THREADS)" \
 		--loop-until "$$(MEASURE_TIMEOUT1)" \
 		--prefix "$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS)" \
-		--submit "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" $(call measurement_run_single_args,$(1)) \
+		--submit "env MOSALLOC_KEEP_HUGEPAGE_POOL=1 $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" $(call measurement_run_single_args,$(1)) \
 		$$(RUN_SINGLE_EXTRA_ARGS)
 endef
 

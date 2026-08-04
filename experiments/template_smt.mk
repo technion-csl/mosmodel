@@ -8,10 +8,20 @@ endif
 
 include $(EXPERIMENTS_VARS_TEMPLATE)
 
+SMT_CORUNNER_PREALLOCATE_COMMAND =
+SMT_CORUNNER_SUBMIT_ARGS =
+ifneq ($(strip $(SMT_CORUNNER_LAYOUT_FILE)),)
+SMT_CORUNNER_PREALLOCATE_COMMAND = MOSALLOC_KEEP_HUGEPAGE_POOL=1 $(SET_CPU_MEMORY_AFFINITY) $(BOUND_MEMORY_NODE) $(RUN_MOSALLOC_TOOL) --library $(MOSALLOC_TOOL) -cpf $(abspath $(SMT_CORUNNER_LAYOUT_FILE)) /bin/date
+SMT_CORUNNER_SUBMIT_ARGS = --submit2 "env MOSALLOC_KEEP_HUGEPAGE_POOL=1 $(RUN_MOSALLOC_TOOL) --library $(MOSALLOC_TOOL) -cpf $(abspath $(SMT_CORUNNER_LAYOUT_FILE)) $(EXTRA_ARGS_FOR_MOSALLOC) --"
+endif
+
 # ---------- Templates ----------
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
-	echo ========== [INFO] start producing: $$@ ==========
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv $(SMT_CORUNNER_LAYOUT_FILE) | experiments-prerequisites
+	echo ========== [INFO] allocate/reserve hugepages ==========
+	MOSALLOC_KEEP_HUGEPAGE_POOL=1 $$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
+	$$(SMT_CORUNNER_PREALLOCATE_COMMAND)
+	echo ========== [INFO] start producing SMT run: $$@ ==========
 	$$(PYTHON) -m scripts.mosmodel_controller.run_pair \
 		--benchmark1 "$$(BENCHMARK1)" \
 		--benchmark2 "$$(BENCHMARK2)" \
@@ -20,12 +30,14 @@ $(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: %/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts
 		--side2-output-dir "$$(EXPERIMENTS_RUN_DIR)/_smt_bg_out/$(1)/$(2)" \
 		--output-target "$$@" \
 		--num-threads "$$(NUMBER_OF_THREADS)" \
-    --loop-until1 "$$(MEASURE_TIMEOUT1)" \
+		--loop-until1 "$$(MEASURE_TIMEOUT1)" \
 		--loop-until2 "$$(MEASURE_TIMEOUT2)" \
-    --prefix1="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1)" \
-    --prefix2="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
-    --submit1 "$$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
-    $(RUN_PAIR_EXTRA_ARGS)
+		--prefix1="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS1)" \
+		--prefix2="$$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(CPU_MEMORY_AFFINITY_ARGS2)" \
+		--submit1 "env MOSALLOC_KEEP_HUGEPAGE_POOL=1 $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< $$(EXTRA_ARGS_FOR_MOSALLOC) --" \
+		$$(SMT_CORUNNER_SUBMIT_ARGS) \
+		$(call measurement_run_pair_args,$(1)) \
+		$$(RUN_PAIR_EXTRA_ARGS)
 endef
 
 # define CSET_SHIELD_EXPS_template =

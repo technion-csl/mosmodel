@@ -99,7 +99,14 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--benchmark", required=True)
     parser.add_argument("--checkpoint-dir", required=True)
-    parser.add_argument("--layout", required=True)
+    parser.add_argument(
+        "--layout",
+        default=None,
+        help=(
+            "Optional Mosalloc layout. When omitted, create a native checkpoint "
+            "without Mosalloc; this is used for a fixed 4KB SMT co-runner."
+        ),
+    )
     parser.add_argument("--i-start", type=int, required=True)
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--prefix", default="")
@@ -176,10 +183,12 @@ def _read_progress_total(path: Path) -> int:
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     checkpoint_dir = Path(args.checkpoint_dir).resolve()
-    layout = Path(args.layout).resolve()
+    layout = Path(args.layout).resolve() if args.layout else None
 
-    if not layout.is_file():
+    if layout is not None and not layout.is_file():
         raise FileNotFoundError(f"missing layout: {layout}")
+    if layout is not None and not args.submit.strip():
+        raise ValueError("--layout requires a Mosalloc --submit command")
 
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,17 +200,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     dump_log = checkpoint_dir / "dump.log"
     progress_output = checkpoint_dir / "perf_progress.out"
 
-    shutil.copy2(layout, checkpoint_layout)
+    if layout is not None:
+        shutil.copy2(layout, checkpoint_layout)
+    else:
+        try:
+            checkpoint_layout.unlink()
+        except FileNotFoundError:
+            pass
 
     run = BenchmarkRun(args.benchmark, str(work_dir), str(output_dir))
     run.prerun()
-    owner = _hugepage_owner(checkpoint_dir)
-    node = _memory_node_from_prefix(args.prefix)
-    submit = (
-        f"env MOSALLOC_KEEP_HUGEPAGE_POOL=1 "
-        f"MOSALLOC_HUGEPAGES_NODE={node} "
-        f"MOSALLOC_HUGEPAGES_OWNER={owner} {args.submit}"
-    )
+    owner = ""
+    submit = args.submit
+    if layout is not None:
+        owner = _hugepage_owner(checkpoint_dir)
+        node = _memory_node_from_prefix(args.prefix)
+        submit = (
+            f"env MOSALLOC_KEEP_HUGEPAGE_POOL=1 "
+            f"MOSALLOC_HUGEPAGES_NODE={node} "
+            f"MOSALLOC_HUGEPAGES_OWNER={owner} {args.submit}"
+        )
     submit_command = compose_submit_command(
         args.prefix,
         submit,
@@ -271,12 +289,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         with benchmark_log.open("r+b") as stream:
             stream.truncate(benchmark_log_size)
 
-        _release_checkpoint_owner(args.submit, args.prefix, owner)
-        owner = ""
+        if owner:
+            _release_checkpoint_owner(args.submit, args.prefix, owner)
+            owner = ""
 
         done_file.write_text("ok\n", encoding="utf-8")
         print(
-            f"created checkpoint layout={layout.stem} "
+            f"created checkpoint layout={layout.stem if layout else 'native'} "
             f"dir={checkpoint_dir} observed={observed}"
         )
         return 0

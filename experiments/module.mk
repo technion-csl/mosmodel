@@ -1,7 +1,15 @@
 PYTHON := python3
 MODULE_NAME := experiments
 SUBMODULES := \
-	memory_footprint \
+	memory_footprint
+
+ifeq ($(RUN_MODE),smt)
+SUBMODULES += \
+	smt_corunner_memory_footprint \
+	smt_corunner_single_page_size
+endif
+
+SUBMODULES += \
 	single_page_size \
 	pebs_tlb_miss_trace \
 	fixed_selector \
@@ -27,6 +35,16 @@ ifdef CPU1
 else
   CPU_MEMORY_AFFINITY_ARGS1 := --smt 1
   CPU_MEMORY_AFFINITY_ARGS2 := --smt 2
+endif
+
+# SMT benchmark-2 layout selection.  "native" keeps the co-runner on its
+# normal allocator path.  Any other name resolves to the locally cached layout
+# generated from BENCHMARK2's own memory footprint.
+SMT_CORUNNER_LAYOUT ?= layout1gb
+ifeq ($(strip $(SMT_CORUNNER_LAYOUT)),native)
+SMT_CORUNNER_LAYOUT_FILE :=
+else
+SMT_CORUNNER_LAYOUT_FILE := experiments/smt_corunner_single_page_size/layouts/$(SMT_CORUNNER_LAYOUT).csv
 endif
 
 CPU_MAX_PERF_STATE_DIR := $(EXPERIMENTS_MODULE_NAME)/sys_state
@@ -229,11 +247,19 @@ INSTRUCTION_COUNT_DEPS :=
 COUNT_INSTR_ARGS :=
 endif
 
+# Keep layout4kb as the historical reference whenever it is part of the
+# requested sweep.  For reduced validation sweeps (for example, only
+# layout2mb), use the first requested layout instead of depending on a layout
+# that will not be generated.
+INSTRUCTION_COUNT_LAYOUTS := $(if $(strip $(SINGLE_PAGE_SIZE_LAYOUTS)),$(SINGLE_PAGE_SIZE_LAYOUTS),layout2mb layout4kb)
+INSTRUCTION_COUNT_LAYOUT ?= $(if $(filter layout4kb,$(INSTRUCTION_COUNT_LAYOUTS)),layout4kb,$(firstword $(INSTRUCTION_COUNT_LAYOUTS)))
+INSTRUCTION_COUNT_EXPERIMENT := experiments/single_page_size/$(INSTRUCTION_COUNT_LAYOUT)
+
 .PHONY: FORCE
-$(INSTRUCTION_COUNT_FILE): FORCE $(INSTRUCTION_COUNT_DEPS) | experiments/single_page_size/layout4kb
+$(INSTRUCTION_COUNT_FILE): FORCE $(INSTRUCTION_COUNT_DEPS) | $(INSTRUCTION_COUNT_EXPERIMENT)
 	$(SCRIPTS_ROOT_DIR)/countInstructions.py $| $(COUNT_INSTR_ARGS) > $@
 
-$(BEST_INTERVAL_FILE): experiments/single_page_size/layout4kb
+$(BEST_INTERVAL_FILE): $(INSTRUCTION_COUNT_EXPERIMENT)
 	python3 $(SCRIPTS_ROOT_DIR)/findBestInterval.py $< --output-json $@ --resolution-sec 6 --cpi-tol 0.13 --mpki-tol 0.13
 
 #### recipes and rules for calculating the benchmark memory footprint

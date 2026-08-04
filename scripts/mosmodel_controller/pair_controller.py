@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Optional
 
 from ..benchmarkCore import BenchmarkRun
+from .cgroup import CgroupV2
+from .criu_restore import restore_stopped
 from .finalize import ensure_parent, finalize_run, remove_dir_if_exists
 from .launcher import (
     LaunchedSide,
@@ -22,9 +24,10 @@ from .launcher import (
     launch_run,
     launch_run_with_start_barrier,
     release_benchmark,
+    terminate_and_wait,
+    terminate_many_and_wait,
     signal_benchmark_group,
     signal_side,
-    terminate_and_wait,
 )
 from .progress import (
     DetachedMeasurementPerfSession,
@@ -70,8 +73,13 @@ class PairController:
         self.args = args
         self.benchmarks_root = benchmarks_root
         self.runs = runs
+        self.criu_run = bool(getattr(self.args, "criu_run", False))
+        self.restore_side1 = bool(getattr(self.args, "checkpoint_dir1", None))
+        self.restore_side2 = bool(getattr(self.args, "checkpoint_dir2", None))
         self.proc1: Optional[LaunchedSide] = None
         self.proc2: Optional[LaunchedSide] = None
+        self.criu_cgroup1: Optional[CgroupV2] = None
+        self.criu_cgroup2: Optional[CgroupV2] = None
         self.monitor1 = WrappedPerfInstructionsMonitor(
             LiveProgressConfig(
                 perf_binary=self.args.progress_perf_binary,
@@ -107,31 +115,8 @@ class PairController:
             )
         )
         self.sync_interval_mode = bool(self.interval_mode and self.args.sync_interval_windows)
-        self.time_fallback_interval_mode = bool(
-            self.interval_mode
-            and (
-                self.args.i_end_side1 < 0
-                or self.args.i_end_side2 < 0
-            )
-        )
-        self.side1_interval = (
-            IntervalBoundaryState(
-                label="side1",
-                start_target=self.args.i_start_side1,
-                end_target=self.args.i_end_side1,
-            )
-            if self.interval_mode
-            else None
-        )
-        self.side2_interval = (
-            IntervalBoundaryState(
-                label="side2",
-                start_target=self.args.i_start_side2,
-                end_target=self.args.i_end_side2,
-            )
-            if self.interval_mode
-            else None
-        )
+        self.side1_interval = self._make_interval_state(1) if self.interval_mode else None
+        self.side2_interval = self._make_interval_state(2) if self.interval_mode else None
 
         self.sync_started = False
         self.sync_completed = False
@@ -159,26 +144,6 @@ class PairController:
             )
         except ValueError:
             self.debug_stop_cont_sleep_sec = 0.5
-        try:
-            self.sync_measurement_bootstrap_sec = max(
-                0.0,
-                float(
-                    os.environ.get(
-                        "MOSMODEL_CONTROLLER_SYNC_MEAS_BOOTSTRAP_MS",
-                        "100",
-                    )
-                ) / 1000.0,
-            )
-        except ValueError:
-            self.sync_measurement_bootstrap_sec = 0.1
-
-        try:
-            self.terminate_grace_sec = max(
-                0.0,
-                float(os.environ.get("MOSMODEL_CONTROLLER_TERMINATE_GRACE_SEC", "10.0")),
-            )
-        except ValueError:
-            self.terminate_grace_sec = 10.0
 
         self.external_resume_gate_dir: Optional[Path] = None
         self.external_ready_file: Optional[Path] = None
@@ -230,6 +195,23 @@ class PairController:
             self.sync_interval_mode = False
             self.side1_interval = None
             self.side2_interval = None
+
+    def _make_interval_state(self, side: int) -> IntervalBoundaryState:
+        start = self.args.i_start_side1 if side == 1 else self.args.i_start_side2
+        end = self.args.i_end_side1 if side == 1 else self.args.i_end_side2
+        restored = self.restore_side1 if side == 1 else self.restore_side2
+        label = f"side{side}"
+
+        if restored:
+            return IntervalBoundaryState(
+                label=label,
+                start_target=0,
+                end_target=end - start,
+                start_seen=True,
+                start_observed_instructions=0,
+                start_observed_monotonic_sec=time.monotonic(),
+            )
+        return IntervalBoundaryState(label=label, start_target=start, end_target=end)
 
     def _external_gate_enabled(self) -> bool:
         return self.external_resume_gate_dir is not None or bool(self.external_resume_socket_path)
@@ -375,8 +357,9 @@ class PairController:
             self._debug_log(f'received {signal.Signals(signum).name}, terminating both sides')
             self._ps_snapshot('signal-handler side1', self.proc1)
             self._ps_snapshot('signal-handler side2', self.proc2)
-            self.terminate_both(grace_sec=self.terminate_grace_sec)
+            self.terminate_both()
             self.join_monitors()
+            self._remove_criu_cgroups()
             self.print_interval_boundaries()
             self.print_sampled_instructions()
             self.print_measurement_perf_notes()
@@ -387,35 +370,17 @@ class PairController:
         signal.signal(signal.SIGTERM, cleanup_on_signal)
 
     def prerun_both(self) -> None:
-        print("running side2 prerun")
-        self.runs.run2.prerun()
-        print("running side1 prerun")
-        self.runs.run1.prerun()
+        if not self.restore_side2:
+            print("running side2 prerun")
+            self.runs.run2.prerun()
+        if not self.restore_side1:
+            print("running side1 prerun")
+            self.runs.run1.prerun()
 
     def _require_benchmark_pid(self, launched: Optional[LaunchedSide], label: str) -> int:
         if launched is None or launched.benchmark_pid is None:
             raise RuntimeError(f"missing benchmark pid for {label}")
         return launched.benchmark_pid
-
-    @staticmethod
-    def _is_time_fallback_interval(state: Optional[IntervalBoundaryState]) -> bool:
-        return state is not None and state.end_target < 0
-
-    @staticmethod
-    def _has_instruction_interval(state: Optional[IntervalBoundaryState]) -> bool:
-        return state is not None and state.end_target >= 0
-
-    def _fallback_duration_sec(self, state: IntervalBoundaryState) -> int:
-        if state.end_target >= 0:
-            raise RuntimeError(f"{state.label} is not a time-fallback interval")
-        return abs(state.end_target)
-
-    def _time_fallback_count(self) -> int:
-        return sum(
-            1
-            for state in (self.side1_interval, self.side2_interval)
-            if self._is_time_fallback_interval(state)
-        )
 
     def _side_interval(self, side: int) -> IntervalBoundaryState:
         state = self.side1_interval if side == 1 else self.side2_interval
@@ -435,6 +400,105 @@ class PairController:
         else:
             self.proc2 = launched
 
+    def _side_is_restored(self, side: int) -> bool:
+        return self.restore_side1 if side == 1 else self.restore_side2
+
+    def _side_cgroup(self, side: int) -> Optional[CgroupV2]:
+        return self.criu_cgroup1 if side == 1 else self.criu_cgroup2
+
+    def _set_side_cgroup(self, side: int, cgroup: CgroupV2) -> None:
+        if side == 1:
+            self.criu_cgroup1 = cgroup
+        else:
+            self.criu_cgroup2 = cgroup
+
+    def _side_checkpoint_dir(self, side: int) -> Path:
+        value = self.args.checkpoint_dir1 if side == 1 else self.args.checkpoint_dir2
+        if not value:
+            raise RuntimeError(f"side{side} has no checkpoint directory")
+        return Path(value)
+
+    def _side_checkpoint_archive_dir(self, side: int) -> Path:
+        value = (
+            self.args.checkpoint_archive_dir1
+            if side == 1
+            else self.args.checkpoint_archive_dir2
+        )
+        if not value:
+            raise RuntimeError(f"side{side} has no checkpoint archive directory")
+        return Path(value)
+
+    def _prepare_restored_side(self, side: int) -> None:
+        restored = restore_stopped(
+            checkpoint_dir=self._side_checkpoint_dir(side),
+            checkpoint_archive_dir=self._side_checkpoint_archive_dir(side),
+            output_dir=Path(
+                self.args.side1_output_dir if side == 1 else self.args.side2_output_dir
+            ),
+            prefix=self._side_prefix(side),
+        )
+        self._set_side_proc(side, restored.as_launched_side())
+        self._set_side_cgroup(side, restored.cgroup)
+        monitor = self._side_monitor(side)
+        if self.args.sample_instructions:
+            monitor.attach_to_cgroup(restored.cgroup.perf_name)
+            monitor.enable()
+        self._debug_log(
+            f"prepared restored side{side}: cgroup={restored.cgroup.perf_name} "
+            f"root_pid={restored.root_pid} benchmark_pid={restored.benchmark_pid}"
+        )
+
+    def _prepare_native_side(
+        self,
+        side: int,
+        *,
+        cmd: Optional[str] = None,
+        attach_progress: bool = True,
+    ) -> None:
+        launched = launch_run_with_start_barrier(
+            self._side_run(side),
+            self.args.num_threads,
+            self._side_cmd(side) if cmd is None else cmd,
+        )
+        self._set_side_proc(side, launched)
+        if attach_progress and self.args.sample_instructions:
+            monitor = self._side_monitor(side)
+            monitor.attach_to_pid(self._require_benchmark_pid(launched, f"side{side}"))
+            monitor.enable()
+        self._debug_log(
+            f"prepared native side{side} behind start barrier: "
+            f"benchmark_pid={getattr(launched, 'benchmark_pid', None)}"
+        )
+
+    def _prepare_side(
+        self,
+        side: int,
+        *,
+        cmd: Optional[str] = None,
+        attach_progress: bool = True,
+    ) -> None:
+        if self._side_is_restored(side):
+            if cmd is not None and cmd != self._side_cmd(side):
+                raise RuntimeError(f"cannot override command for restored side{side}")
+            self._prepare_restored_side(side)
+        else:
+            self._prepare_native_side(side, cmd=cmd, attach_progress=attach_progress)
+
+    def _resume_prepared_side(self, side: int) -> None:
+        launched = self._side_proc(side)
+        if self._side_is_restored(side):
+            if not signal_benchmark_group(launched, signal.SIGCONT):
+                raise RuntimeError(f"failed to resume restored side{side}")
+        elif not release_benchmark(launched):
+            raise RuntimeError(f"failed to release native side{side} start barrier")
+
+    def _mark_prepared_side_at_start(self, side: int) -> None:
+        state = self._side_interval(side)
+        if self._side_is_restored(side) or state.start_target == 0:
+            state.start_seen = True
+            state.start_observed_instructions = 0
+            state.start_observed_monotonic_sec = time.monotonic()
+
     def _side_run(self, side: int) -> BenchmarkRun:
         return self.runs.run1 if side == 1 else self.runs.run2
 
@@ -447,52 +511,6 @@ class PairController:
     def _side_submit(self, side: int) -> str:
         return self.args.submit1 if side == 1 else self.args.submit2
 
-    def _looped_fallback_cmd(
-        self,
-        side: int,
-        *,
-        paired_with_valid_interval: bool,
-        duration_override: Optional[int] = None,
-    ) -> str:
-        state = self._side_interval(side)
-        if duration_override is not None:
-            duration = duration_override
-        else:
-            duration = (
-                self.args.looped_fallback_until
-                if paired_with_valid_interval
-                else self._fallback_duration_sec(state)
-            )
-        return compose_submit_command(
-            self._side_prefix(side),
-            self._side_submit(side),
-            duration,
-            self.benchmarks_root,
-        )
-
-    def _launch_side_with_barrier(
-        self,
-        side: int,
-        *,
-        cmd: str,
-        attach_progress: bool,
-        release_immediately: bool,
-    ) -> None:
-        launched = launch_run_with_start_barrier(
-            self._side_run(side),
-            self.args.num_threads,
-            cmd,
-        )
-        self._set_side_proc(side, launched)
-        if attach_progress:
-            monitor = self._side_monitor(side)
-            monitor.attach_to_pid(self._require_benchmark_pid(launched, f"side{side}"))
-            monitor.enable()
-        if release_immediately:
-            if not release_benchmark(launched):
-                raise RuntimeError(f"failed to release side{side} benchmark start barrier")
-            self._debug_log(f"released side{side} benchmark start barrier")
-
     def _signal_benchmark_side(self, side: int, sig: int) -> None:
         # Use the full side session plus the inner benchmark process group. Some
         # benchmark wrappers can create children outside the original PGID.
@@ -500,28 +518,47 @@ class PairController:
         signal_side(launched, sig)
         signal_benchmark_group(launched, sig)
 
-    def _mark_time_fallback_started(self, state: IntervalBoundaryState, now_monotonic: float) -> None:
-        state.start_seen = True
-        state.start_observed_instructions = None
-        state.start_observed_monotonic_sec = now_monotonic
+    def _launch_criu_pair(self) -> None:
+        if not self.sync_interval_mode:
+            raise RuntimeError("SMT CRIU mode requires synchronized instruction intervals")
+        try:
+            # Prepare both sides without allowing either benchmark to execute.
+            # Restored sides are left stopped by CRIU; native I_start=0 sides
+            # remain behind the start barrier.
+            self._prepare_side(2)
+            self._prepare_side(1)
+            self._mark_prepared_side_at_start(1)
+            self._mark_prepared_side_at_start(2)
 
-    def _mark_time_fallback_completed(self, state: IntervalBoundaryState, now_monotonic: float) -> None:
-        state.end_seen = True
-        state.end_observed_instructions = None
-        state.end_observed_monotonic_sec = now_monotonic
+            assert self.side1_interval is not None and self.side2_interval is not None
+            if not (self.side1_interval.start_seen and self.side2_interval.start_seen):
+                raise RuntimeError(
+                    "SMT CRIU preparation did not place both sides at their interval starts"
+                )
 
-    def _valid_and_fallback_sides(self) -> tuple[int, int]:
-        side1_valid = self._has_instruction_interval(self.side1_interval)
-        side2_valid = self._has_instruction_interval(self.side2_interval)
-        side1_fallback = self._is_time_fallback_interval(self.side1_interval)
-        side2_fallback = self._is_time_fallback_interval(self.side2_interval)
-        if side1_valid and side2_fallback:
-            return 1, 2
-        if side2_valid and side1_fallback:
-            return 2, 1
-        raise RuntimeError("expected exactly one valid instruction side and one time-fallback side")
+            self._enable_measurement_if_needed()
+            self._resume_prepared_side(2)
+            self._resume_prepared_side(1)
+
+            now = time.monotonic()
+            self.sync_started = True
+            self.sync_started_monotonic_sec = now
+            self.sync_started_side1_instructions = self.monitor1.total_instructions()
+            self.sync_started_side2_instructions = self.monitor2.total_instructions()
+            self._debug_log(
+                "[interval sync] SMT CRIU pair prepared at I_start; enabled "
+                "measurement and resumed both sides"
+            )
+        except Exception:
+            self.terminate_both()
+            self.join_monitors()
+            self._remove_criu_cgroups()
+            raise
 
     def launch_both(self) -> None:
+        if self.criu_run:
+            self._launch_criu_pair()
+            return
         try:
             if self.args.sample_instructions:
                 self.proc2 = launch_run_with_start_barrier(
@@ -569,19 +606,53 @@ class PairController:
                 self._ps_snapshot('launch_both after release side2', self.proc2)
                 self._maybe_run_debug_stop_cont_validation()
         except Exception:
-            self.terminate_both(grace_sec=self.terminate_grace_sec)
+            self.terminate_both()
             self.join_monitors()
             raise
 
-    def terminate_both(self, grace_sec: float = 2.0) -> tuple[Optional[int], Optional[int]]:
-        rc1 = terminate_and_wait(self.proc1, grace_sec=grace_sec)
-        rc2 = terminate_and_wait(self.proc2, grace_sec=grace_sec)
+    def terminate_both(self) -> tuple[Optional[int], Optional[int]]:
+        for side in (1, 2):
+            cgroup = self._side_cgroup(side)
+            if cgroup is None:
+                continue
+            try:
+                cgroup.kill()
+            except Exception as exc:
+                self._debug_log(f"WARNING: failed to kill side{side} CRIU cgroup: {exc}")
+        self._debug_log("sending SIGTERM to both side sessions for graceful cleanup")
+        rc1, rc2 = terminate_many_and_wait((self.proc1, self.proc2))
         return rc1, rc2
+
+    def _remove_criu_cgroups(self) -> None:
+        for side in (1, 2):
+            cgroup = self._side_cgroup(side)
+            if cgroup is None:
+                continue
+            try:
+                if cgroup.is_populated():
+                    cgroup.kill()
+                cgroup.remove()
+                self._debug_log(f"removed side{side} CRIU cgroup {cgroup.perf_name}")
+            except Exception as exc:
+                self._debug_log(f"WARNING: failed to remove side{side} CRIU cgroup: {exc}")
+            finally:
+                if side == 1:
+                    self.criu_cgroup1 = None
+                else:
+                    self.criu_cgroup2 = None
 
     def _attach_sync_measurement_if_needed(self) -> None:
         if self.measurement_attached:
             return
         if not self.sync_interval_mode:
+            return
+        if self.restore_side1:
+            cgroup = self.criu_cgroup1
+            if cgroup is None:
+                raise RuntimeError("missing side1 CRIU cgroup for measurement perf")
+            print(f"[measurement perf] sync attach side1 CRIU cgroup={cgroup.perf_name}")
+            self.measurement1.attach_to_cgroup(cgroup.perf_name)
+            self.measurement_attached = True
             return
         benchmark_pid = getattr(self.proc1, "benchmark_pid", None)
         benchmark_pgid = getattr(self.proc1, "benchmark_pgid", None)
@@ -607,10 +678,17 @@ class PairController:
                 "no side1 benchmark-group pids available for sync measurement perf "
                 f"(benchmark_pgid={benchmark_pgid}, benchmark_pid={benchmark_pid})"
             )
-        print(
-            f"[measurement perf] sync attach target group for side1: "
-            f"benchmark_pgid={benchmark_pgid} pids={target_pids}"
-        )
+        if len(target_pids) == 1 and target_pids[0] == benchmark_pid:
+            print(
+                "[measurement perf] side1 worker subtree has not expanded; "
+                "attach to the stable benchmark leader so perf inheritance "
+                "covers descendants created after resume"
+            )
+        else:
+            print(
+                f"[measurement perf] side1 worker subtree is ready: "
+                f"benchmark_pgid={benchmark_pgid} pids={target_pids}"
+            )
         self.measurement1.attach_to_pids(target_pids)
         self.measurement_attached = True
 
@@ -632,9 +710,9 @@ class PairController:
 
     def join_monitors(self) -> None:
         if self.args.sample_instructions:
-            self.monitor1.stop(timeout=5.0)
-            self.monitor2.stop(timeout=5.0)
-        self.measurement1.stop(timeout=5.0)
+            self.monitor1.stop()
+            self.monitor2.stop()
+        self.measurement1.stop()
 
     def print_sampled_instructions(self) -> None:
         if not self.args.sample_instructions:
@@ -668,11 +746,6 @@ class PairController:
         allow_end: bool = True,
     ) -> None:
         if state is None:
-            return
-        if self._is_time_fallback_interval(state):
-            # Negative I_end means this side has no instruction interval. It is
-            # controlled by wall time / loopForever and should not be compared
-            # against instruction counters.
             return
         if (not state.start_seen) and current_instructions >= state.start_target:
             state.start_seen = True
@@ -728,7 +801,6 @@ class PairController:
             "[debug stop/cont] validating benchmark-group STOP/CONT "
             f"on {target_label} with sleep_sec={self.debug_stop_cont_sleep_sec}"
         )
-        time.sleep(0.2)
         self._debug_print_ps_snapshot(f"before STOP {target_label}", launched)
         if not signal_benchmark_group(launched, signal.SIGSTOP):
             print(f"[debug stop/cont] failed to STOP {target_label}")
@@ -799,16 +871,6 @@ class PairController:
                 self._ps_snapshot('sync-start both STOPped side1', self.proc1)
                 self._ps_snapshot('sync-start both STOPped side2', self.proc2)
                 self._wait_for_external_resume_if_needed(side1_instructions, side2_instructions)
-                if self.sync_measurement_bootstrap_sec > 0.0:
-                    self._debug_log(f'[interval sync] bootstrap run before measurement attach: CONT both sides for {self.sync_measurement_bootstrap_sec:.3f}s so the real worker subtree can appear')
-                    signal_benchmark_group(self.proc1, signal.SIGCONT)
-                    signal_benchmark_group(self.proc2, signal.SIGCONT)
-                    time.sleep(self.sync_measurement_bootstrap_sec)
-                    signal_benchmark_group(self.proc1, signal.SIGSTOP)
-                    signal_benchmark_group(self.proc2, signal.SIGSTOP)
-                    time.sleep(0.02)
-                    self._print_sync_ps_snapshot("after bootstrap STOP side1", self.proc1)
-                    self._print_sync_ps_snapshot("after bootstrap STOP side2", self.proc2)
                 side1_instructions = self.monitor1.total_instructions()
                 side2_instructions = self.monitor2.total_instructions()
                 now_monotonic = time.monotonic()
@@ -863,205 +925,6 @@ class PairController:
                 )
                 return True
         return False
-
-    def _start_one_valid_sync_interval(self, valid_side: int, fallback_side: int, valid_instructions: int) -> None:
-        valid_state = self._side_interval(valid_side)
-        fallback_state = self._side_interval(fallback_side)
-        self._debug_log(
-            f"[interval sync] side{valid_side} reached I_start; STOP it and launch "
-            f"side{fallback_side} as looped time-fallback benchmark"
-        )
-        self._signal_benchmark_side(valid_side, signal.SIGSTOP)
-        self._launch_side_with_barrier(
-            fallback_side,
-            cmd=self._looped_fallback_cmd(fallback_side, paired_with_valid_interval=True),
-            attach_progress=False,
-            release_immediately=False,
-        )
-        self._enable_measurement_if_needed()
-        self._signal_benchmark_side(valid_side, signal.SIGCONT)
-        if not release_benchmark(self._side_proc(fallback_side)):
-            raise RuntimeError(f"failed to release side{fallback_side} benchmark start barrier")
-        now = time.monotonic()
-        self._mark_time_fallback_started(fallback_state, now)
-        self.sync_started = True
-        self.sync_started_monotonic_sec = now
-        self.sync_started_side1_instructions = self.monitor1.total_instructions() if valid_side == 1 else None
-        self.sync_started_side2_instructions = self.monitor2.total_instructions() if valid_side == 2 else None
-        self._debug_log(
-            f"[interval sync] enabled measurement perf, resumed side{valid_side}, "
-            f"and released looped side{fallback_side}"
-        )
-        self._update_interval_state(valid_state, valid_instructions, now, allow_end=True)
-
-    def wait_with_one_looped_time_fallback_side(self) -> IntervalControlResult:
-        valid_side, fallback_side = self._valid_and_fallback_sides()
-        valid_state = self._side_interval(valid_side)
-        fallback_state = self._side_interval(fallback_side)
-        valid_monitor = self._side_monitor(valid_side)
-        try:
-            self._launch_side_with_barrier(
-                valid_side,
-                cmd=self._side_cmd(valid_side),
-                attach_progress=True,
-                release_immediately=False,
-            )
-            if valid_state.start_target == 0:
-                self._launch_side_with_barrier(
-                    fallback_side,
-                    cmd=self._looped_fallback_cmd(fallback_side, paired_with_valid_interval=True),
-                    attach_progress=False,
-                    release_immediately=False,
-                )
-                self._enable_measurement_if_needed()
-                if not release_benchmark(self._side_proc(valid_side)):
-                    raise RuntimeError(f"failed to release side{valid_side} benchmark start barrier")
-                if not release_benchmark(self._side_proc(fallback_side)):
-                    raise RuntimeError(f"failed to release side{fallback_side} benchmark start barrier")
-                now = time.monotonic()
-                valid_state.start_seen = True
-                valid_state.start_observed_instructions = valid_monitor.total_instructions()
-                valid_state.start_observed_monotonic_sec = now
-                self._mark_time_fallback_started(fallback_state, now)
-                self.sync_started = True
-                self.sync_started_monotonic_sec = now
-                self.sync_started_side1_instructions = self.monitor1.total_instructions() if valid_side == 1 else None
-                self.sync_started_side2_instructions = self.monitor2.total_instructions() if valid_side == 2 else None
-                self._debug_log(
-                    f"[interval sync] side{valid_side} has I_start=0; enabled measurement "
-                    f"before release and released both sides"
-                )
-            else:
-                if not release_benchmark(self._side_proc(valid_side)):
-                    raise RuntimeError(f"failed to release side{valid_side} benchmark start barrier")
-                self._debug_log(
-                    f"released side{valid_side}; side{fallback_side} will be launched only at I_start"
-                )
-        except Exception:
-            self.terminate_both(grace_sec=self.terminate_grace_sec)
-            self.join_monitors()
-            raise
-
-        while True:
-            valid_proc = self._side_proc(valid_side)
-            fallback_proc = self._side_proc(fallback_side)
-            rc_valid = valid_proc.proc.poll() if valid_proc is not None else 1
-            rc_fallback = fallback_proc.proc.poll() if fallback_proc is not None else None
-            valid_instructions = valid_monitor.total_instructions()
-            now = time.monotonic()
-            self._update_interval_state(valid_state, valid_instructions, now, allow_end=self.sync_started)
-
-            if not self.sync_started and valid_state.start_seen:
-                self._start_one_valid_sync_interval(valid_side, fallback_side, valid_instructions)
-
-            if self.sync_started:
-                self._update_interval_state(valid_state, valid_instructions, now, allow_end=True)
-                if valid_state.end_seen:
-                    self.sync_completed = True
-                    self.sync_completed_reason = f"side{valid_side}_end"
-                    completed_at = time.monotonic()
-                    self._mark_time_fallback_completed(fallback_state, completed_at)
-                    self._disable_measurement_if_needed()
-                    self._debug_log(
-                        f"[interval sync] side{valid_side} reached I_end; disabled measurement perf "
-                        "and terminating both sides"
-                    )
-                    return IntervalControlResult(
-                        rc1=self.proc1.proc.poll() if self.proc1 is not None else None,
-                        rc2=self.proc2.proc.poll() if self.proc2 is not None else None,
-                        interval_completed=True,
-                    )
-                if rc_fallback is not None:
-                    self._debug_log(
-                        f"[interval sync] looped fallback side{fallback_side} exited before "
-                        f"side{valid_side} reached I_end: rc={rc_fallback}"
-                    )
-                    return IntervalControlResult(
-                        rc1=self.proc1.proc.poll() if self.proc1 is not None else None,
-                        rc2=self.proc2.proc.poll() if self.proc2 is not None else None,
-                        interval_completed=False,
-                    )
-
-            if rc_valid is not None:
-                self._debug_log(
-                    f"[interval sync] valid side{valid_side} exited before reaching I_end: rc={rc_valid}"
-                )
-                return IntervalControlResult(
-                    rc1=self.proc1.proc.poll() if self.proc1 is not None else None,
-                    rc2=self.proc2.proc.poll() if self.proc2 is not None else None,
-                    interval_completed=False,
-                )
-            time.sleep(0.05)
-
-    def wait_with_both_sides_time_fallback(self) -> IntervalControlResult:
-        duration_sec = max(
-            self._fallback_duration_sec(self._side_interval(1)),
-            self._fallback_duration_sec(self._side_interval(2)),
-        )
-        try:
-            self._launch_side_with_barrier(
-                2,
-                cmd=self._looped_fallback_cmd(
-                    2,
-                    paired_with_valid_interval=False,
-                    duration_override=duration_sec,
-                ),
-                attach_progress=False,
-                release_immediately=False,
-            )
-            self._launch_side_with_barrier(
-                1,
-                cmd=self._looped_fallback_cmd(
-                    1,
-                    paired_with_valid_interval=False,
-                    duration_override=duration_sec,
-                ),
-                attach_progress=False,
-                release_immediately=False,
-            )
-            self._enable_measurement_if_needed()
-            if not release_benchmark(self.proc1):
-                raise RuntimeError("failed to release side1 benchmark start barrier")
-            if not release_benchmark(self.proc2):
-                raise RuntimeError("failed to release side2 benchmark start barrier")
-            now = time.monotonic()
-            self._mark_time_fallback_started(self._side_interval(1), now)
-            self._mark_time_fallback_started(self._side_interval(2), now)
-            self.sync_started = True
-            self.sync_started_monotonic_sec = now
-            self._debug_log(
-                f"[interval sync] both sides missing instruction intervals; measuring "
-                f"{duration_sec}s wall-time fallback"
-            )
-        except Exception:
-            self.terminate_both(grace_sec=self.terminate_grace_sec)
-            self.join_monitors()
-            raise
-
-        deadline = time.monotonic() + duration_sec
-        while True:
-            rc1 = self.proc1.proc.poll() if self.proc1 is not None else 1
-            rc2 = self.proc2.proc.poll() if self.proc2 is not None else 1
-            if time.monotonic() >= deadline:
-                break
-            if rc1 is not None or rc2 is not None:
-                if time.monotonic() + 0.5 >= deadline:
-                    break
-                self._debug_log(f"[interval sync] time-fallback side exited early: side1={rc1} side2={rc2}")
-                return IntervalControlResult(rc1=rc1, rc2=rc2, interval_completed=False)
-            time.sleep(0.05)
-
-        now = time.monotonic()
-        self._mark_time_fallback_completed(self._side_interval(1), now)
-        self._mark_time_fallback_completed(self._side_interval(2), now)
-        self.sync_completed = True
-        self.sync_completed_reason = "time_fallback_wall_time_elapsed"
-        self._disable_measurement_if_needed()
-        return IntervalControlResult(
-            rc1=self.proc1.proc.poll() if self.proc1 is not None else None,
-            rc2=self.proc2.proc.poll() if self.proc2 is not None else None,
-            interval_completed=True,
-        )
 
     def wait_with_sampled_instruction_control(self) -> IntervalControlResult:
         if self.proc1 is None:
@@ -1157,6 +1020,8 @@ class PairController:
         summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
     def finalize_side1(self, *, do_postrun: bool) -> None:
+        if self.restore_side1:
+            return
         finalize_run(
             self.runs.run1,
             do_postrun=do_postrun,
@@ -1165,6 +1030,10 @@ class PairController:
         )
 
     def finalize_side2(self, *, do_postrun: bool) -> None:
+        if self.restore_side2:
+            if not self.args.keep_side2_output:
+                remove_dir_if_exists(Path(self.args.side2_output_dir))
+            return
         if self.args.keep_side2_output:
             finalize_run(
                 self.runs.run2,
@@ -1188,23 +1057,14 @@ class PairController:
         rc2: Optional[int]
 
         if self.args.sample_instructions:
-            if self.sync_interval_mode and self.time_fallback_interval_mode:
-                fallback_count = self._time_fallback_count()
-                if fallback_count == 1:
-                    control_result = self.wait_with_one_looped_time_fallback_side()
-                elif fallback_count == 2:
-                    control_result = self.wait_with_both_sides_time_fallback()
-                else:
-                    raise RuntimeError(f"unexpected time-fallback count: {fallback_count}")
-            else:
-                self.launch_both()
-                control_result = self.wait_with_sampled_instruction_control()
+            self.launch_both()
+            control_result = self.wait_with_sampled_instruction_control()
             interval_completed = control_result.interval_completed
             rc1 = control_result.rc1
             rc2 = control_result.rc2
             if interval_completed:
                 self._disable_measurement_if_needed()
-                term_rc1, term_rc2 = self.terminate_both(grace_sec=self.terminate_grace_sec)
+                term_rc1, term_rc2 = self.terminate_both()
                 if rc1 is None:
                     rc1 = term_rc1
                 if rc2 is None:
@@ -1217,10 +1077,11 @@ class PairController:
         else:
             self.launch_both()
             rc1 = self.proc1.proc.wait() if self.proc1 is not None else 1
-            rc2 = terminate_and_wait(self.proc2, grace_sec=self.terminate_grace_sec)
+            rc2 = terminate_and_wait(self.proc2)
 
         self._disable_measurement_if_needed()
         self.join_monitors()
+        self._remove_criu_cgroups()
         print(f"[run rc] side1={rc1} side2={rc2}")
         self.print_interval_boundaries()
         self.print_sampled_instructions()
@@ -1240,13 +1101,13 @@ class PairController:
         if side1_success:
             self.finalize_side1(do_postrun=(False if interval_completed else (not side1_loop_mode)))
             self.touch_output_target()
-        else:
+        elif not self.restore_side1:
             self.runs.run1.move_files_to_output_dir()
 
         if self.args.keep_side2_output:
             if side2_success:
                 self.finalize_side2(do_postrun=(False if interval_completed else (not side2_loop_mode)))
-            else:
+            elif not self.restore_side2:
                 self.runs.run2.move_files_to_output_dir()
         else:
             remove_dir_if_exists(Path(self.args.side2_output_dir))

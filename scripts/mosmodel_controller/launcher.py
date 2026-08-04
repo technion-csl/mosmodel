@@ -76,14 +76,18 @@ def _read_int_file(path: Path) -> Optional[int]:
 
 
 
-def _wait_for_benchmark_pgid(path: Path, timeout_sec: float = 2.0) -> Optional[int]:
-    deadline = time.time() + timeout_sec
-    while time.time() < deadline:
+def _wait_for_benchmark_pgid(
+    path: Path,
+    supervisor_proc: subprocess.Popen,
+) -> Optional[int]:
+    """Wait until the supervisor publishes the benchmark PGID or exits."""
+    while True:
         value = _read_int_file(path)
         if value is not None:
             return value
+        if supervisor_proc.poll() is not None:
+            return _read_int_file(path)
         time.sleep(0.01)
-    return _read_int_file(path)
 
 
 
@@ -120,7 +124,7 @@ def _spawn_side(
     sid = os.getsid(proc.pid)
     benchmark_pgid = None
     if benchmark_pgid_file is not None:
-        benchmark_pgid = _wait_for_benchmark_pgid(benchmark_pgid_file)
+        benchmark_pgid = _wait_for_benchmark_pgid(benchmark_pgid_file, proc)
     benchmark_pid = benchmark_pgid
     print(f"  sid={sid}")
     print(f"  benchmark_pgid={benchmark_pgid}")
@@ -227,7 +231,9 @@ def release_benchmark(launched: Optional[LaunchedSide]) -> bool:
 
 
 
-def terminate_and_wait(launched: Optional[LaunchedSide], grace_sec: float = 2.0) -> Optional[int]:
+
+def kill_and_wait(launched: Optional[LaunchedSide]) -> Optional[int]:
+    """Deterministically kill the complete side session and reap its supervisor."""
     if launched is None:
         return None
 
@@ -238,20 +244,62 @@ def terminate_and_wait(launched: Optional[LaunchedSide], grace_sec: float = 2.0)
             pass
         launched.release_fd = None
 
-    signal_side(launched, signal.SIGTERM)
+    signal_side(launched, signal.SIGKILL)
+    return launched.proc.wait()
+
+def terminate_many_and_wait(
+    launched_sides: tuple[Optional[LaunchedSide], ...],
+    grace_sec: float = 2.0,
+) -> tuple[Optional[int], ...]:
+    """Gracefully stop multiple side sessions at approximately the same time.
+
+    SIGTERM is sent to every live side before waiting for any one side. This lets
+    wrappers such as runMosalloc.py unwind and release their logical huge-page
+    reservations. SIGKILL is used only for sessions that remain after the grace
+    period.
+    """
+    sides = tuple(launched_sides)
+
+    for launched in sides:
+        if launched is None or launched.release_fd is None:
+            continue
+        try:
+            os.close(launched.release_fd)
+        except OSError:
+            pass
+        launched.release_fd = None
+
+    for launched in sides:
+        if _side_has_live_processes(launched):
+            signal_side(launched, signal.SIGTERM)
+
     deadline = time.time() + grace_sec
     while time.time() < deadline:
-        if not _side_alive(launched):
+        if not any(_side_has_live_processes(launched) for launched in sides):
             break
         time.sleep(0.05)
 
-    if _side_alive(launched):
-        signal_side(launched, signal.SIGKILL)
+    for launched in sides:
+        if _side_has_live_processes(launched):
+            signal_side(launched, signal.SIGKILL)
 
-    try:
-        return launched.proc.wait(timeout=1.0)
-    except subprocess.TimeoutExpired:
-        return launched.proc.poll()
+    results: list[Optional[int]] = []
+    for launched in sides:
+        if launched is None:
+            results.append(None)
+            continue
+        try:
+            results.append(launched.proc.wait(timeout=1.0))
+        except subprocess.TimeoutExpired:
+            results.append(launched.proc.poll())
+    return tuple(results)
+
+
+def terminate_and_wait(
+    launched: Optional[LaunchedSide],
+    grace_sec: float = 2.0,
+) -> Optional[int]:
+    return terminate_many_and_wait((launched,), grace_sec=grace_sec)[0]
 
 
 
@@ -411,6 +459,17 @@ def signal_benchmark_group(launched: Optional[LaunchedSide], sig: int) -> bool:
     except PermissionError:
         return False
 
+
+
+def _side_has_live_processes(launched: Optional[LaunchedSide]) -> bool:
+    if launched is None:
+        return False
+    for row in _ps_snapshot_detailed().values():
+        if row["sid"] != launched.sid:
+            continue
+        if not str(row["stat"]).startswith("Z"):
+            return True
+    return False
 
 
 def _side_alive(launched: Optional[LaunchedSide]) -> bool:

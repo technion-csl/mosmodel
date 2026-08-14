@@ -18,6 +18,8 @@ TREE_EXEC_PATH = RUNTIME_MOUNT / 'scripts' / 'mosmodel_controller' / 'tree_exec.
 
 IMAGES_DIR = 'images'
 WORK_SNAPSHOT_DIR = 'work.snapshot'
+RUNTIME_SNAPSHOT_DIR = 'runtime.snapshot'
+MOSALLOC_LIBRARY_RELATIVE = Path('mosalloc/build/src/libmosalloc.so')
 RESTORE_WORK_DIR = 'work'
 METADATA_FILE = 'metadata.json'
 DONE_FILE = 'checkpoint.done'
@@ -65,9 +67,10 @@ def write_metadata(
     i_start: int,
     observed: int,
     num_threads: int,
+    runtime_artifacts: list[str] | None = None,
 ) -> None:
     metadata = {
-        'schema_version': 1,
+        'schema_version': 2,
         'benchmark': str(benchmark.resolve()),
         'layout': None if layout is None else layout.name,
         'i_start': i_start,
@@ -76,6 +79,7 @@ def write_metadata(
         'work_path': str(WORK_MOUNT),
         'runtime_path': str(RUNTIME_MOUNT),
         'benchmark_log': str(BENCHMARK_LOG_PATH),
+        'runtime_artifacts': runtime_artifacts or [],
     }
     path = checkpoint_dir / METADATA_FILE
     temporary = path.with_suffix('.json.tmp')
@@ -142,6 +146,32 @@ def virtualize_command(command: str, runtime_dir: Path, use_layout: bool) -> str
     if replace_layout:
         raise ValueError('-cpf is missing its layout argument')
     return shlex.join(rewritten)
+
+
+def read_metadata(checkpoint_dir: Path) -> dict:
+    return json.loads((checkpoint_dir / METADATA_FILE).read_text())
+
+
+def mosalloc_library_from_submit(submit: str) -> Optional[Path]:
+    argv = shlex.split(submit)
+    if not any(Path(token).name == 'runMosalloc.py' for token in argv):
+        return None
+    try:
+        index = argv.index('--library')
+        return Path(argv[index + 1])
+    except (ValueError, IndexError):
+        raise ValueError('runMosalloc.py submit command is missing --library')
+
+
+def snapshot_runtime_artifact(checkpoint_dir: Path, source: Path) -> str:
+    try:
+        relative = source.relative_to(RUNTIME_MOUNT)
+    except ValueError as error:
+        raise ValueError(f'runtime artifact is outside {RUNTIME_MOUNT}: {source}') from error
+    destination = checkpoint_dir / RUNTIME_SNAPSHOT_DIR / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return str(relative)
 
 
 def memory_node(prefix: str) -> int:

@@ -22,6 +22,18 @@ def _bind(source: Path, target: Path) -> None:
     subprocess.run(['mount', '--bind', str(source), str(target)], check=True)
 
 
+def _bind_file(source: Path, target: Path) -> None:
+    if not source.is_file() or not target.is_file():
+        raise FileNotFoundError(f'bind file is missing: source={source} target={target}')
+    subprocess.run(['mount', '--bind', str(source), str(target)], check=True)
+
+
+def _bind_runtime_artifacts(artifact_dir: Path) -> None:
+    for source in sorted(path for path in artifact_dir.rglob('*') if path.is_file()):
+        relative = source.relative_to(artifact_dir)
+        _bind_file(source, RUNTIME_MOUNT / relative)
+
+
 def in_checkpoint_namespace() -> bool:
     return os.environ.get(CHECKPOINT_MARKER) == '1'
 
@@ -61,12 +73,16 @@ def restore_namespace_command(
     work_dir: Path,
     runtime_dir: Path,
     command: Sequence[str],
+    runtime_artifact_dir: Path | None = None,
 ) -> list[str]:
     return [
         *_sudo(), 'unshare', '--mount', '--pid', '--fork', '--mount-proc',
         '--kill-child=SIGKILL', '--propagation', 'private', sys.executable, '-m',
         'scripts.mosmodel_controller.namespaces', 'restore',
         '--work-dir', str(work_dir.resolve()), '--runtime-dir', str(runtime_dir.resolve()),
+        *([] if runtime_artifact_dir is None else [
+            '--runtime-artifact-dir', str(runtime_artifact_dir.resolve()),
+        ]),
         '--', *command,
     ]
 
@@ -105,6 +121,11 @@ def _restore(args: argparse.Namespace) -> int:
 
     _bind(work, WORK_MOUNT)
     _bind(runtime, RUNTIME_MOUNT)
+    if args.runtime_artifact_dir:
+        artifact_dir = Path(args.runtime_artifact_dir).resolve()
+        if not artifact_dir.is_dir():
+            raise FileNotFoundError(f'runtime artifact directory is missing: {artifact_dir}')
+        _bind_runtime_artifacts(artifact_dir)
     os.chdir(WORK_MOUNT)
 
     command_pid = os.fork()
@@ -141,6 +162,7 @@ def _parser() -> argparse.ArgumentParser:
     restore = sub.add_parser('restore')
     restore.add_argument('--work-dir', required=True)
     restore.add_argument('--runtime-dir', required=True)
+    restore.add_argument('--runtime-artifact-dir')
     restore.add_argument('command', nargs=argparse.REMAINDER)
     return parser
 

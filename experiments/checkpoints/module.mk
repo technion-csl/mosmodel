@@ -14,18 +14,21 @@ CHECKPOINT_BENCHMARK2_ID ?= $(call checkpoint_benchmark_id_from_path,$(BENCHMARK
 # immutable archive before each restore.
 checkpoint_workspace_dir = $(CHECKPOINTS_DIR)/$(1)/$(2)
 
-# Immutable archive: the checkpoint.done marker is the Make prerequisite.
+# Immutable archive. Native checkpoints are ready at checkpoint.done.
+# Mosalloc-backed checkpoints additionally require the exact runtime library;
+# using that file as the prerequisite automatically rebuilds pre-snapshot archives.
+CHECKPOINT_RUNTIME_ARTIFACT := runtime.snapshot/mosalloc/build/src/libmosalloc.so
 checkpoint_archive_dir = $(CRIU_CHECKPOINT_ARCHIVE_ROOT)/$(1)/$(2)
-checkpoint_archive_done = $(call checkpoint_archive_dir,$(1),$(2))/checkpoint.done
+checkpoint_archive_done = $(call checkpoint_archive_dir,$(1),$(2))/$(if $(filter native,$(2)),checkpoint.done,$(CHECKPOINT_RUNTIME_ARTIFACT))
 checkpoint_build_dir = $(CHECKPOINT_BUILD_DIR)/$(1)/$(2)
 
 # Side 1 uses the experiment layout selected by the measurement target.
 ifeq ($(CRIU_RUN),1)
 ifneq ($(strip $(I_START1)),0)
-$(CRIU_CHECKPOINT_ARCHIVE_ROOT)/$(CHECKPOINT_BENCHMARK1_ID)/%/checkpoint.done: | $(CHECKPOINT_LAYOUT_SOURCE_DIR)/%.csv experiments-prerequisites
+$(CRIU_CHECKPOINT_ARCHIVE_ROOT)/$(CHECKPOINT_BENCHMARK1_ID)/%/$(CHECKPOINT_RUNTIME_ARTIFACT): | $(CHECKPOINT_LAYOUT_SOURCE_DIR)/%.csv experiments-prerequisites
 	$(PYTHON) -m scripts.mosmodel_controller.create_checkpoint \
 		--benchmark "$(BENCHMARK_PATH)" \
-		--checkpoint-dir "$(@D)" \
+		--checkpoint-dir "$(call checkpoint_archive_dir,$(CHECKPOINT_BENCHMARK1_ID),$*)" \
 		--run-dir "$(call checkpoint_build_dir,$(CHECKPOINT_BENCHMARK1_ID),$*)" \
 		--force \
 		--layout "$(abspath $(CHECKPOINT_LAYOUT_SOURCE_DIR)/$*.csv)" \
@@ -48,7 +51,7 @@ ifeq ($(strip $(SMT_CORUNNER_LAYOUT_FILE)),)
 $(CHECKPOINT_SIDE2_ARCHIVE_DONE): | experiments-prerequisites
 	$(PYTHON) -m scripts.mosmodel_controller.create_checkpoint \
 		--benchmark "$(BENCHMARK2)" \
-		--checkpoint-dir "$(@D)" \
+		--checkpoint-dir "$(call checkpoint_archive_dir,$(CHECKPOINT_BENCHMARK2_ID),$(SMT_CORUNNER_CHECKPOINT_LAYOUT))" \
 		--run-dir "$(call checkpoint_build_dir,$(CHECKPOINT_BENCHMARK2_ID),$(SMT_CORUNNER_CHECKPOINT_LAYOUT))" \
 		--force \
 		--i-start "$(I_START2)" \
@@ -58,7 +61,7 @@ else
 $(CHECKPOINT_SIDE2_ARCHIVE_DONE): | $(SMT_CORUNNER_LAYOUT_FILE) experiments-prerequisites
 	$(PYTHON) -m scripts.mosmodel_controller.create_checkpoint \
 		--benchmark "$(BENCHMARK2)" \
-		--checkpoint-dir "$(@D)" \
+		--checkpoint-dir "$(call checkpoint_archive_dir,$(CHECKPOINT_BENCHMARK2_ID),$(SMT_CORUNNER_CHECKPOINT_LAYOUT))" \
 		--run-dir "$(call checkpoint_build_dir,$(CHECKPOINT_BENCHMARK2_ID),$(SMT_CORUNNER_CHECKPOINT_LAYOUT))" \
 		--force \
 		--layout "$(abspath $(SMT_CORUNNER_LAYOUT_FILE))" \

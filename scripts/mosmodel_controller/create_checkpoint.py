@@ -25,9 +25,11 @@ from .checkpoint import (
     hugepage_owner,
     mark_complete,
     memory_node,
+    mosalloc_library_from_submit,
     read_progress,
     release_hugepages,
     runtime_root,
+    snapshot_runtime_artifact,
     snapshot_work,
     virtualize_command,
     write_metadata,
@@ -119,6 +121,7 @@ def _create(args: argparse.Namespace) -> int:
 
     prefix = virtualize_command(args.prefix, runtime_dir, False)
     submit = virtualize_command(args.submit, runtime_dir, layout is not None)
+    mosalloc_library = mosalloc_library_from_submit(submit)
     owner = ''
     if layout is not None:
         owner = hugepage_owner(checkpoint_dir)
@@ -156,9 +159,14 @@ def _create(args: argparse.Namespace) -> int:
             owner = ''
 
         snapshot_work(checkpoint_dir / WORK_SNAPSHOT_DIR)
+        runtime_artifacts: list[str] = []
+        if mosalloc_library is not None:
+            if not mosalloc_library.is_file():
+                raise FileNotFoundError(f'mosalloc runtime library is missing: {mosalloc_library}')
+            runtime_artifacts.append(snapshot_runtime_artifact(checkpoint_dir, mosalloc_library))
         write_metadata(
             checkpoint_dir, Path(args.benchmark), layout,
-            args.i_start, observed, args.num_threads,
+            args.i_start, observed, args.num_threads, runtime_artifacts,
         )
         mark_complete(checkpoint_dir)
         print(

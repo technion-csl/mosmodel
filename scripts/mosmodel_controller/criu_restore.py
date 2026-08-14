@@ -11,7 +11,9 @@ from pathlib import Path
 from .cgroup import CgroupV2
 from .checkpoint import (
     IMAGES_DIR,
+    RUNTIME_SNAPSHOT_DIR,
     RESTORE_WORK_DIR,
+    read_metadata,
     reset_restore_work,
     run_root,
     runtime_root,
@@ -95,6 +97,28 @@ def restore_stopped(
     checkpoint_dir = checkpoint_dir.resolve()
     archive_dir = checkpoint_archive_dir.resolve()
 
+    metadata = read_metadata(archive_dir)
+    runtime_artifacts = metadata.get('runtime_artifacts')
+    if runtime_artifacts is None:
+        # Schema v1 checkpoints predate runtime artifact snapshots. Native
+        # checkpoints remain portable; mosalloc-backed checkpoints must be
+        # regenerated because CRIU validates the mapped libmosalloc build-ID.
+        if metadata.get('layout') is not None:
+            raise RuntimeError(
+                f'mosalloc-backed checkpoint predates runtime artifact snapshots: {archive_dir}; '
+                'regenerate this checkpoint with the current checkpoint creator'
+            )
+        runtime_artifacts = []
+
+    artifact_dir = archive_dir / RUNTIME_SNAPSHOT_DIR
+    for relative in runtime_artifacts:
+        path = artifact_dir / relative
+        if not path.is_file():
+            raise RuntimeError(
+                f'checkpoint runtime artifact is missing: {path}; '
+                'regenerate this checkpoint'
+            )
+
     # checkpoint_dir is only the mutable restore workspace.  The immutable
     # archive is the source of truth: CRIU reads images directly from it, while
     # reset_restore_work() recreates only the mutable /work contents.
@@ -126,6 +150,7 @@ def restore_stopped(
         checkpoint_dir / RESTORE_WORK_DIR,
         runtime,
         criu,
+        runtime_artifact_dir=artifact_dir if runtime_artifacts else None,
     )
     launch_command = [*shlex.split(prefix), *namespace_command]
     process = subprocess.Popen(

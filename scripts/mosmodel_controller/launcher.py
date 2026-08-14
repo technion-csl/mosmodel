@@ -20,6 +20,7 @@ class LaunchedSide:
     benchmark_pgid: Optional[int] = None
     benchmark_pid: Optional[int] = None
     release_fd: Optional[int] = None
+    start_gate_stopped: bool = False
 
 
 def compose_submit_command(
@@ -159,20 +160,100 @@ def _inner_benchmark_launcher(
 
 
 
-def launch_run(run: BenchmarkRun, num_threads: int, submit_command: str) -> LaunchedSide:
+
+_RUN_SH_GATE_MARKER = "# MOSMODEL_NATIVE_START_GATE"
+
+
+def _install_run_sh_start_gate(run: BenchmarkRun) -> Path:
+    """Stop the copied run.sh immediately after it starts.
+
+    The gate is deliberately inside run.sh so CPU/NUMA affinity and runMosalloc
+    setup happen before the controller enables measurement.
     """
-    Launch like BenchmarkRun.run(), but asynchronously and in a fresh session so
-    the controller can terminate the whole side by session later.
-    The actual benchmark subtree runs in a separate inner process group so
-    STOP/CONT can target only the benchmark while the side session remains the
-    cleanup unit.
-    """
+    run_sh = Path(run._run_dir) / "run.sh"
+    text = run_sh.read_text(encoding="utf-8")
+    if _RUN_SH_GATE_MARKER not in text:
+        snippet = (
+            f"{_RUN_SH_GATE_MARKER}\n"
+            'if [ -n "${MOSMODEL_START_GATE_PID_FILE:-}" ]; then\n'
+            '    printf "%s\\n" "$$" > "$MOSMODEL_START_GATE_PID_FILE"\n'
+            '    unset MOSMODEL_START_GATE_PID_FILE\n'
+            '    kill -STOP "$$"\n'
+            "fi\n"
+        )
+        lines = text.splitlines(keepends=True)
+        if lines and lines[0].startswith("#!"):
+            text = lines[0] + snippet + "".join(lines[1:])
+        else:
+            text = snippet + text
+        run_sh.write_text(text, encoding="utf-8")
+    return run_sh
+
+
+def _wait_for_benchmark_pid(
+    path: Path,
+    supervisor_proc: subprocess.Popen,
+) -> int:
+    """Wait until run.sh reaches the native start gate and publishes its PID."""
+    while True:
+        value = _read_int_file(path)
+        if value is not None:
+            return value
+        if supervisor_proc.poll() is not None:
+            raise RuntimeError(
+                f"benchmark exited before reaching start gate: {path}"
+            )
+        time.sleep(0.01)
+
+
+def launch_run_at_benchmark_start(
+    run: BenchmarkRun,
+    num_threads: int,
+    submit_command: str,
+) -> LaunchedSide:
+    """Run affinity/mosalloc setup, then stop at the first line of run.sh."""
+    _install_run_sh_start_gate(run)
+
+    benchmark_pid_file = Path(run._run_dir) / ".benchmark_start_pid"
+    benchmark_pid_file.unlink(missing_ok=True)
+
     env = _build_env(num_threads, run._output_dir)
+    env["MOSMODEL_START_GATE_PID_FILE"] = str(benchmark_pid_file)
+
     shell_cmd = submit_command.strip() if submit_command else ""
     cmd, benchmark_pgid_file = _inner_benchmark_launcher(run, shell_cmd)
     wrapped_cmd = " ".join(shlex.quote(part) for part in cmd)
-    return _spawn_side(run, env, cmd, wrapped_cmd, benchmark_pgid_file=benchmark_pgid_file)
+    launched = _spawn_side(
+        run,
+        env,
+        cmd,
+        wrapped_cmd,
+        benchmark_pgid_file=benchmark_pgid_file,
+    )
 
+    benchmark_pid = _wait_for_benchmark_pid(
+        benchmark_pid_file,
+        launched.proc,
+    )
+    launched.benchmark_pid = benchmark_pid
+    launched.start_gate_stopped = True
+    print(f"  benchmark_start_pid={benchmark_pid}")
+    return launched
+
+
+def resume_benchmark_start_gate(launched: Optional[LaunchedSide]) -> bool:
+    if (
+        launched is None
+        or not launched.start_gate_stopped
+        or launched.benchmark_pid is None
+    ):
+        return False
+    try:
+        os.kill(launched.benchmark_pid, signal.SIGCONT)
+    except (ProcessLookupError, PermissionError):
+        return False
+    launched.start_gate_stopped = False
+    return True
 
 
 def launch_run_with_start_barrier(
@@ -232,21 +313,6 @@ def release_benchmark(launched: Optional[LaunchedSide]) -> bool:
 
 
 
-def kill_and_wait(launched: Optional[LaunchedSide]) -> Optional[int]:
-    """Deterministically kill the complete side session and reap its supervisor."""
-    if launched is None:
-        return None
-
-    if launched.release_fd is not None:
-        try:
-            os.close(launched.release_fd)
-        except OSError:
-            pass
-        launched.release_fd = None
-
-    signal_side(launched, signal.SIGKILL)
-    return launched.proc.wait()
-
 def terminate_many_and_wait(
     launched_sides: tuple[Optional[LaunchedSide], ...],
     grace_sec: float = 2.0,
@@ -272,6 +338,16 @@ def terminate_many_and_wait(
     for launched in sides:
         if _side_has_live_processes(launched):
             signal_side(launched, signal.SIGTERM)
+            if (
+                launched is not None
+                and launched.start_gate_stopped
+                and launched.benchmark_pid is not None
+            ):
+                try:
+                    os.kill(launched.benchmark_pid, signal.SIGCONT)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                launched.start_gate_stopped = False
 
     deadline = time.time() + grace_sec
     while time.time() < deadline:
@@ -301,16 +377,6 @@ def terminate_and_wait(
 ) -> Optional[int]:
     return terminate_many_and_wait((launched,), grace_sec=grace_sec)[0]
 
-
-
-def _session_exists(sid: int) -> bool:
-    result = subprocess.run(
-        ["pgrep", "-s", str(sid)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return result.returncode == 0
 
 
 def signal_side(launched: Optional[LaunchedSide], sig: int) -> None:
@@ -395,58 +461,29 @@ def _ps_snapshot_detailed() -> dict[int, dict[str, object]]:
     return rows
 
 
-def benchmark_group_pid_details(launched: Optional[LaunchedSide]) -> dict[str, object]:
+def benchmark_group_pids(launched: Optional[LaunchedSide]) -> list[int]:
     if launched is None:
-        return {"pgid_members": [], "descendants": [], "final_target_pids": [], "target_process_rows": []}
+        return []
 
     rows = _ps_snapshot()
-    detailed_rows = _ps_snapshot_detailed()
-    pgid_members: set[int] = set()
-    descendants: set[int] = set()
-    final_targets: set[int] = set()
-
+    targets: set[int] = set()
     if launched.benchmark_pgid is not None:
-        for pid, _ppid, pgid in rows:
-            if pgid == launched.benchmark_pgid:
-                pgid_members.add(pid)
-                final_targets.add(pid)
+        targets.update(pid for pid, _ppid, pgid in rows if pgid == launched.benchmark_pgid)
 
     if launched.benchmark_pid is not None and _pid_alive(launched.benchmark_pid):
-        descendants.add(launched.benchmark_pid)
-        final_targets.add(launched.benchmark_pid)
-        by_ppid: dict[int, list[int]] = {}
+        by_parent: dict[int, list[int]] = {}
         for pid, ppid, _pgid in rows:
-            by_ppid.setdefault(ppid, []).append(pid)
+            by_parent.setdefault(ppid, []).append(pid)
         stack = [launched.benchmark_pid]
-        seen: set[int] = set()
         while stack:
-            current = stack.pop()
-            if current in seen:
+            pid = stack.pop()
+            if pid in targets:
                 continue
-            seen.add(current)
-            for child in by_ppid.get(current, []):
-                if child > 0:
-                    descendants.add(child)
-                    final_targets.add(child)
-                    stack.append(child)
+            targets.add(pid)
+            stack.extend(by_parent.get(pid, []))
 
-    alive = lambda items: sorted(pid for pid in items if _pid_alive(pid))
-    final_target_pids = alive(final_targets)
-    target_process_rows = [
-        detailed_rows[pid]
-        for pid in final_target_pids
-        if pid in detailed_rows
-    ]
-    return {
-        "pgid_members": alive(pgid_members),
-        "descendants": alive(descendants),
-        "final_target_pids": final_target_pids,
-        "target_process_rows": target_process_rows,
-    }
+    return sorted(pid for pid in targets if _pid_alive(pid))
 
-
-def benchmark_group_pids(launched: Optional[LaunchedSide]) -> list[int]:
-    return benchmark_group_pid_details(launched)["final_target_pids"]
 
 def signal_benchmark_group(launched: Optional[LaunchedSide], sig: int) -> bool:
     if launched is None or launched.benchmark_pgid is None:
@@ -472,7 +509,3 @@ def _side_has_live_processes(launched: Optional[LaunchedSide]) -> bool:
     return False
 
 
-def _side_alive(launched: Optional[LaunchedSide]) -> bool:
-    if launched is None:
-        return False
-    return _session_exists(launched.sid)

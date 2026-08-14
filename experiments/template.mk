@@ -14,7 +14,7 @@ endif
 # ---------- Templates ----------
 
 define MEASUREMENTS_template =
-$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv | experiments-prerequisites
+$(EXPERIMENT_DIR)/$(1)/$(2)/perf.out: $(EXPERIMENT_DIR)/layouts/$(1).csv $(call measurement_run_prerequisites,$(1)) | experiments-prerequisites
 	echo ========== [INFO] allocate/reserve hugepages ==========
 	MOSALLOC_KEEP_HUGEPAGE_POOL=1 $$(SET_CPU_MEMORY_AFFINITY) $$(BOUND_MEMORY_NODE) $$(RUN_MOSALLOC_TOOL) --library $$(MOSALLOC_TOOL) -cpf $$(ROOT_DIR)/$$< /bin/date
 	echo ========== [INFO] start producing ST run: $$@ ==========

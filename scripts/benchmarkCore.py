@@ -49,7 +49,8 @@ class BenchmarkRun:
 
     def __del__(self):
         if hasattr(self, "_log_file"):
-            self._log_file.close()
+            if self._log_file is not None:
+                self._log_file.close()
 
     def _assertBenchmarkIsValid(self):
         if not self._benchmark_dir.exists():

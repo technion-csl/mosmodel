@@ -71,48 +71,6 @@ def _pid_cgroup_relative_path(pid: int) -> Path:
     raise RuntimeError(f"pid {pid} is not attached to a cgroup v2 hierarchy")
 
 
-def process_tree_pids(root_pid: int) -> list[int]:
-    """Return root_pid and all currently visible descendants."""
-    result = subprocess.run(
-        ["ps", "-e", "-o", "pid=,ppid="],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "failed to inspect restored process tree")
-
-    by_parent: dict[int, list[int]] = {}
-    visible: set[int] = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) != 2:
-            continue
-        try:
-            pid, ppid = int(fields[0]), int(fields[1])
-        except ValueError:
-            continue
-        visible.add(pid)
-        by_parent.setdefault(ppid, []).append(pid)
-
-    root_pid = int(root_pid)
-    if root_pid not in visible:
-        return []
-
-    tree: list[int] = []
-    stack = [root_pid]
-    seen: set[int] = set()
-    while stack:
-        pid = stack.pop()
-        if pid in seen:
-            continue
-        seen.add(pid)
-        tree.append(pid)
-        stack.extend(by_parent.get(pid, []))
-    return tree
-
-
 
 @dataclass
 class CgroupV2:

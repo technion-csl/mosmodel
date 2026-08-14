@@ -7,109 +7,26 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-from .cgroup import CgroupV2, process_tree_pids
+from .cgroup import CgroupV2
+from .checkpoint import (
+    IMAGES_DIR,
+    RESTORE_WORK_DIR,
+    reset_restore_work,
+    run_root,
+    runtime_root,
+)
 from .launcher import LaunchedSide
+from .namespaces import restore_namespace_command
+from .process_tree import (
+    process_tree_pids,
+    deepest_single_child,
+    host_pid_for_namespace_pid,
+    read_process_group,
+    wait_until_stopped,
+)
 
-
-def _privileged_prefix() -> list[str]:
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return []
-    return ["sudo"]
-
-
-def _run_privileged(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [*_privileged_prefix(), *command],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-
-
-def _run_privileged_checked(command: list[str]) -> None:
-    result = _run_privileged(command)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-
-
-def reset_restore_workspace(
-    checkpoint_archive_dir: Path,
-    checkpoint_dir: Path,
-) -> None:
-    checkpoint_archive_dir = checkpoint_archive_dir.resolve()
-    checkpoint_dir = checkpoint_dir.resolve()
-
-    if checkpoint_archive_dir == checkpoint_dir:
-        raise RuntimeError(
-            "checkpoint archive and restore workspace must be different directories"
-        )
-    if not (checkpoint_archive_dir / "checkpoint.done").is_file():
-        raise FileNotFoundError(
-            f"checkpoint archive is incomplete: {checkpoint_archive_dir}"
-        )
-
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("work", "create-output"):
-        source = checkpoint_archive_dir / name
-        destination = checkpoint_dir / name
-        if not source.is_dir():
-            raise FileNotFoundError(f"missing checkpoint directory: {source}")
-
-        _run_privileged_checked(["rm", "-rf", str(destination)])
-        _run_privileged_checked(["cp", "-a", str(source), str(destination)])
-
-
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except PermissionError:
-        result = _run_privileged(["cat", str(path)])
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-        return result.stdout
-
-
-def _read_process_group(pid: int) -> tuple[int, int]:
-    text = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
-    fields = text[text.rfind(")") + 2 :].split()
-    return int(fields[2]), int(fields[3])
-
-
-def _children(pid: int) -> list[int]:
-    path = Path("/proc") / str(pid) / "task" / str(pid) / "children"
-    text = path.read_text(encoding="utf-8").strip()
-    return [int(value) for value in text.split()] if text else []
-
-
-def single_child(pid: int) -> int:
-    children = _children(pid)
-    if len(children) != 1:
-        raise RuntimeError(f"expected one child of pid {pid}, found {children}")
-    return children[0]
-
-
-def deepest_single_child(pid: int) -> int:
-    current = pid
-    while True:
-        children = _children(current)
-        if not children:
-            return current
-        if len(children) != 1:
-            raise RuntimeError(f"expected one child of pid {current}, found {children}")
-        current = children[0]
-
-
-def wait_until_stopped(pid: int) -> None:
-    stat_path = Path("/proc") / str(pid) / "stat"
-    while True:
-        text = stat_path.read_text(encoding="utf-8")
-        state = text[text.rfind(")") + 2 :].split()[0]
-        if state in {"T", "t", "Z", "X", "x"}:
-            return
-        time.sleep(0.001)
+POLL_SEC = 0.001
 
 
 @dataclass(frozen=True)
@@ -130,18 +47,33 @@ class StoppedRestore:
         )
 
 
-def _kill_restore(
-    root_pid: Optional[int],
-    pgid: Optional[int],
-    criu_process: subprocess.Popen[str],
-    cgroup: Optional[CgroupV2] = None,
+def _read(path: Path) -> str:
+    try:
+        return path.read_text()
+    except PermissionError:
+        result = run_root(['cat', str(path)])
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+        return result.stdout
+
+
+def _failed(process: subprocess.Popen[str], log: Path) -> None:
+    rc = process.poll()
+    if rc is not None:
+        raise RuntimeError(f'CRIU restore failed rc={rc}; see {log}')
+
+
+def _cleanup(
+    process: subprocess.Popen[str],
+    root_pid: int | None,
+    pgid: int | None,
+    cgroup: CgroupV2 | None,
 ) -> None:
     if cgroup is not None:
         try:
             cgroup.kill_and_remove()
         except Exception:
             pass
-
     try:
         if pgid is not None:
             os.killpg(pgid, signal.SIGKILL)
@@ -149,9 +81,8 @@ def _kill_restore(
             os.kill(root_pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
-
-    if criu_process.poll() is None:
-        criu_process.kill()
+    if process.poll() is None:
+        process.kill()
 
 
 def restore_stopped(
@@ -162,96 +93,89 @@ def restore_stopped(
     prefix: str,
 ) -> StoppedRestore:
     checkpoint_dir = checkpoint_dir.resolve()
-    checkpoint_archive_dir = checkpoint_archive_dir.resolve()
-    images_dir = checkpoint_dir / "images"
-    if not (checkpoint_dir / "checkpoint.done").is_file():
-        raise FileNotFoundError(f"checkpoint is incomplete: {checkpoint_dir}")
-    if not images_dir.is_dir():
-        raise FileNotFoundError(f"missing CRIU images: {images_dir}")
+    archive_dir = checkpoint_archive_dir.resolve()
 
-    # CRIU images and checkpoint metadata remain unchanged. Reset only the
-    # filesystem state that a restored repeat can modify.
-    reset_restore_workspace(checkpoint_archive_dir, checkpoint_dir)
+    # checkpoint_dir is only the mutable restore workspace.  The immutable
+    # archive is the source of truth: CRIU reads images directly from it, while
+    # reset_restore_work() recreates only the mutable /work contents.
+    reset_restore_work(archive_dir, checkpoint_dir)
+    images = archive_dir / IMAGES_DIR
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    pidfile = output_dir / "restore.pid"
-    restore_log = output_dir / "restore.log"
+    pidfile = output_dir / 'restore.pid'
+    log = output_dir / 'restore.log'
+    pidfile.unlink(missing_ok=True)
 
-    command = [
-        *_privileged_prefix(),
-        *shlex.split(prefix),
-        "criu",
-        "restore",
-        "-D",
-        str(images_dir),
-        "--leave-stopped",
-        "--pidfile",
-        str(pidfile),
-        "--shell-job",
-        "--manage-cgroups=ignore",
-        "-v4",
-        "-o",
-        str(restore_log),
+    # Keep affinity/NUMA wrappers outside the private PID namespace.
+    # In particular, setCpuMemoryAffinity.sh --smt uses helper subprocesses;
+    # allowing those helpers into the namespace can occupy image PIDs (7, 9,
+    # 10, ...), making CRIU fail with EEXIST while recreating the saved tree.
+    criu = [
+        'criu', 'restore',
+        '-D', str(images),
+        '-W', str(output_dir),
+        '--leave-stopped',
+        '--pidfile', str(pidfile),
+        '--manage-cgroups=ignore',
+        '-v4',
+        '-o', str(log),
     ]
-    criu_process = subprocess.Popen(
-        command,
-        cwd=checkpoint_dir / "work",
+    runtime = runtime_root()
+    namespace_command = restore_namespace_command(
+        checkpoint_dir / RESTORE_WORK_DIR,
+        runtime,
+        criu,
+    )
+    launch_command = [*shlex.split(prefix), *namespace_command]
+    process = subprocess.Popen(
+        launch_command,
+        cwd=runtime,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         text=True,
     )
 
-    root_pid: Optional[int] = None
-    pgid: Optional[int] = None
-    cgroup: Optional[CgroupV2] = None
+    root_pid = None
+    pgid = None
+    cgroup = None
     try:
         while not pidfile.is_file():
-            returncode = criu_process.poll()
-            if returncode is not None:
-                raise RuntimeError(
-                    f"CRIU restore failed with rc={returncode}; see {restore_log}"
-                )
-            time.sleep(0.001)
+            _failed(process, log)
+            time.sleep(POLL_SEC)
+        namespace_pid = int(_read(pidfile).strip())
 
-        root_pid = int(_read_text(pidfile).strip())
+        while root_pid is None:
+            root_pid = host_pid_for_namespace_pid(process.pid, namespace_pid)
+            if root_pid is None:
+                _failed(process, log)
+                time.sleep(POLL_SEC)
+        print(f'[CRIU pidns] namespace_root_pid={namespace_pid} host_root_pid={root_pid}')
+
         while True:
             try:
                 benchmark_pid = deepest_single_child(root_pid)
-                if benchmark_pid == root_pid:
-                    raise RuntimeError("restored benchmark child is not visible yet")
-                wait_until_stopped(root_pid)
-                wait_until_stopped(benchmark_pid)
-                break
+                if benchmark_pid != root_pid:
+                    wait_until_stopped(root_pid)
+                    wait_until_stopped(benchmark_pid)
+                    break
             except (FileNotFoundError, ProcessLookupError, RuntimeError):
-                returncode = criu_process.poll()
-                if returncode is not None:
-                    raise RuntimeError(
-                        f"CRIU restore failed with rc={returncode}; see {restore_log}"
-                    )
-                time.sleep(0.001)
+                pass
+            _failed(process, log)
+            time.sleep(POLL_SEC)
 
-        pgid, sid = _read_process_group(root_pid)
-
-        restored_pids = process_tree_pids(root_pid)
-        for restored_pid in restored_pids:
-            wait_until_stopped(restored_pid)
+        pgid, sid = read_process_group(root_pid)
+        restored = process_tree_pids(root_pid)
+        for pid in restored:
+            wait_until_stopped(pid)
 
         cgroup = CgroupV2.create_for_pid(root_pid, str(output_dir))
-        cgroup.add_pids(restored_pids)
+        cgroup.add_pids(restored)
         print(
-            f"[CRIU cgroup] created {cgroup.perf_name}: "
-            f"root_pid={root_pid} restored_pids={restored_pids}"
+            f'[CRIU cgroup] created {cgroup.perf_name}: '
+            f'root_pid={root_pid} restored_pids={restored}'
         )
-
-        return StoppedRestore(
-            root_pid,
-            benchmark_pid,
-            pgid,
-            sid,
-            criu_process,
-            cgroup,
-        )
+        return StoppedRestore(root_pid, benchmark_pid, pgid, sid, process, cgroup)
     except Exception:
-        _kill_restore(root_pid, pgid, criu_process, cgroup)
+        _cleanup(process, root_pid, pgid, cgroup)
         raise

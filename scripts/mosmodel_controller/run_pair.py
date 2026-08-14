@@ -10,7 +10,7 @@ def main() -> int:
     benchmarks_root = find_benchmarks_root()
     runs = build_pair_runs(args, benchmarks_root)
 
-    controller = PairController(args, benchmarks_root, runs)
+    controller = PairController(args, runs)
     controller.install_signal_handlers()
     return controller.run()
 

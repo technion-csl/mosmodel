@@ -23,10 +23,9 @@ def find_benchmarks_root() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one SMT benchmark pair with the legacy semantics: launch side2, "
-            "launch side1, wait for side1, terminate side2, finalize outputs. "
-            "When instruction sampling is enabled, attach a detached perf stat "
-            "sampler to a barrier-held benchmark leader before releasing real work."
+            "Run one SMT benchmark pair. In CRIU mode, sides with I_start > 0 are "
+            "restored stopped and sides with I_start = 0 start natively at the "
+            "run.sh gate; measurement begins after both sides reach I_start."
         )
     )
 
@@ -170,38 +169,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
-    parser.add_argument(
-        "--external-resume-gate-dir",
-        default="",
-        help=(
-            "Optional directory used as an external resume gate for synchronized interval mode. "
-            "When set, the controller stops both benchmark groups once both start thresholds are observed, "
-            "writes READY/STATE files in that directory, and waits until RESUME appears before continuing."
-        ),
-    )
-    parser.add_argument(
-        "--external-resume-socket-path",
-        default=os.environ.get("MOSMODEL_CONTROLLER_EXTERNAL_RESUME_SOCKET_PATH", ""),
-        help=(
-            "Optional Unix domain socket path for the external resume gate. When set, the controller "
-            "connects to the scheduler, sends a READY payload, and waits for RESUME on the same socket."
-        ),
-    )
-    parser.add_argument(
-        "--external-resume-token",
-        default=os.environ.get("MOSMODEL_CONTROLLER_EXTERNAL_RESUME_TOKEN", ""),
-        help="Opaque token identifying this run to the external scheduler when using the socket gate.",
-    )
 
-    parser.add_argument(
-        "--debug-sync-ps",
-        action="store_true",
-        default=False,
-        help=(
-            "Print `ps -o pid,ppid,pgid,sid,stat,cmd -s <sid>` snapshots around sync STOP/CONT "
-            "operations to debug which processes are being paused/resumed"
-        ),
-    )
 
     args = parser.parse_args()
 
@@ -228,15 +196,10 @@ def parse_args() -> argparse.Namespace:
     if interval_mode and not args.sample_instructions:
         parser.error("interval boundary mode requires --sample-instructions")
     if interval_mode:
-        if args.i_end_side1 < 0 or args.i_end_side2 < 0:
-            parser.error(
-                "SMT instruction-interval mode requires non-negative I_END values "
-                "for both sides; wall-time fallback is not supported"
-            )
-        if args.i_end_side1 < args.i_start_side1:
-            parser.error("--i-end-side1 must be >= --i-start-side1")
-        if args.i_end_side2 < args.i_start_side2:
-            parser.error("--i-end-side2 must be >= --i-start-side2")
+        if args.i_end_side1 <= args.i_start_side1:
+            parser.error("--i-end-side1 must be greater than --i-start-side1")
+        if args.i_end_side2 <= args.i_start_side2:
+            parser.error("--i-end-side2 must be greater than --i-start-side2")
     if args.sync_interval_windows and not interval_mode:
         parser.error("--sync-interval-windows requires the four --i-start/--i-end flags")
     if interval_mode and ((args.loop_until1 is not None and args.loop_until1 > 0) or (args.loop_until2 is not None and args.loop_until2 > 0)):
@@ -285,10 +248,4 @@ def parse_args() -> argparse.Namespace:
         value = getattr(args, name)
         if value is not None:
             setattr(args, name, str(Path(value).resolve()))
-    if args.external_resume_gate_dir:
-        args.external_resume_gate_dir = str(Path(args.external_resume_gate_dir).resolve())
-    if args.external_resume_socket_path:
-        args.external_resume_socket_path = str(Path(args.external_resume_socket_path))
-    if args.external_resume_token:
-        args.external_resume_token = str(args.external_resume_token)
     return args

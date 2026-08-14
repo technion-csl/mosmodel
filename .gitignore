@@ -30,6 +30,6 @@ analysis/mosmodel/*/test/module.mk
 
 /experiments/single_page_size/layout2mb/
 /experiments/single_page_size/layout4kb/
-/experiments/criu_single_page_size/
+/experiments/checkpoints/
 /experiments/smt_corunner_memory_footprint/
 /experiments/smt_corunner_single_page_size/

@@ -82,8 +82,8 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint-archive-dir",
         default=None,
         help=(
-            "Immutable archived checkpoint used to reset work/ and "
-            "create-output/ before each restore."
+            "Immutable archived checkpoint used to reset mutable work/ "
+            "from work.snapshot/ before each restore."
         ),
     )
     args = parser.parse_args()
@@ -114,6 +114,8 @@ def parse_args() -> argparse.Namespace:
             parser.error("CRIU mode requires --checkpoint-archive-dir")
         if not interval_mode:
             parser.error("CRIU mode requires --i-start and --i-end")
+        if args.i_start == 0:
+            parser.error("I_start = 0 runs natively; do not provide checkpoint arguments")
         if args.i_end <= args.i_start:
             parser.error("CRIU mode requires --i-end greater than --i-start")
         args.checkpoint_dir = str(Path(args.checkpoint_dir).resolve())
@@ -134,7 +136,7 @@ def main() -> int:
     args = parse_args()
     benchmarks_root = find_benchmarks_root()
     run = build_single_run(args, benchmarks_root)
-    controller = SingleController(args, benchmarks_root, run)
+    controller = SingleController(args, run)
     controller.install_signal_handlers()
     return controller.run()
 

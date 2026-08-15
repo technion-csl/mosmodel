@@ -42,6 +42,7 @@ from .launcher import (
 )
 from .namespaces import in_checkpoint_namespace, run_checkpoint_namespace
 from .process_tree import deepest_single_child, single_child, wait_until_stopped
+from .tcp import tree_has_established_tcp
 
 PROGRESS_MS = 50
 
@@ -145,7 +146,16 @@ def _create(args: argparse.Namespace) -> int:
         os.kill(benchmark_pid, signal.SIGSTOP)
         wait_until_stopped(benchmark_pid)
 
-        dump(root_pid, checkpoint_dir / IMAGES_DIR, run_dir / 'dump.log')
+        tcp_established = tree_has_established_tcp(root_pid)
+        if tcp_established:
+            print(
+                '[CRIU tcp] detected established TCP socket(s); '
+                'enabling --tcp-established for checkpoint dump'
+            )
+        dump(
+            root_pid, checkpoint_dir / IMAGES_DIR, run_dir / 'dump.log',
+            tcp_established=tcp_established,
+        )
         log_size = BENCHMARK_LOG_PATH.stat().st_size
 
         terminate_and_wait(launched)
@@ -167,6 +177,7 @@ def _create(args: argparse.Namespace) -> int:
         write_metadata(
             checkpoint_dir, Path(args.benchmark), layout,
             args.i_start, observed, args.num_threads, runtime_artifacts,
+            tcp_established=tcp_established,
         )
         mark_complete(checkpoint_dir)
         print(

@@ -98,6 +98,7 @@ def restore_stopped(
     archive_dir = checkpoint_archive_dir.resolve()
 
     metadata = read_metadata(archive_dir)
+    tcp_established = bool(metadata.get('tcp_established', False))
     runtime_artifacts = metadata.get('runtime_artifacts')
     if runtime_artifacts is None:
         # Schema v1 checkpoints predate runtime artifact snapshots. Native
@@ -145,6 +146,11 @@ def restore_stopped(
         '-v4',
         '-o', str(log),
     ]
+    if tcp_established:
+        criu.append('--tcp-established')
+        print(
+            f'[CRIU tcp] enabling established TCP restore for {archive_dir}'
+        )
     runtime = runtime_root()
     namespace_command = restore_namespace_command(
         checkpoint_dir / RESTORE_WORK_DIR,

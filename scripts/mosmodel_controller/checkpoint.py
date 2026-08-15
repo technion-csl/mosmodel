@@ -68,9 +68,10 @@ def write_metadata(
     observed: int,
     num_threads: int,
     runtime_artifacts: list[str] | None = None,
+    tcp_established: bool = False,
 ) -> None:
     metadata = {
-        'schema_version': 2,
+        'schema_version': 3,
         'benchmark': str(benchmark.resolve()),
         'layout': None if layout is None else layout.name,
         'i_start': i_start,
@@ -80,6 +81,7 @@ def write_metadata(
         'runtime_path': str(RUNTIME_MOUNT),
         'benchmark_log': str(BENCHMARK_LOG_PATH),
         'runtime_artifacts': runtime_artifacts or [],
+        'tcp_established': tcp_established,
     }
     path = checkpoint_dir / METADATA_FILE
     temporary = path.with_suffix('.json.tmp')
@@ -228,11 +230,16 @@ def read_progress(path: Path) -> int:
     return total
 
 
-def dump(root_pid: int, images_dir: Path, dump_log: Path) -> None:
+def dump(
+    root_pid: int, images_dir: Path, dump_log: Path, *, tcp_established: bool = False,
+) -> None:
     images_dir.mkdir(parents=True)
+    command = [*_sudo(), 'criu', 'dump', '-t', str(root_pid), '-D', str(images_dir)]
+    if tcp_established:
+        command.append('--tcp-established')
+    command.extend(['-v4', '-o', str(dump_log)])
     result = subprocess.run(
-        [*_sudo(), 'criu', 'dump', '-t', str(root_pid), '-D', str(images_dir),
-         '-v4', '-o', str(dump_log)],
+        command,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -235,10 +235,19 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(checkpoint_dir)
 
     shutil.rmtree(run_dir, ignore_errors=True)
-    (run_dir / 'work').mkdir(parents=True)
+    work_dir = run_dir / 'work'
+    checkpoint_tmp = work_dir / '.tmp'
+    checkpoint_tmp.mkdir(parents=True)
     checkpoint_dir.mkdir(parents=True)
 
-    rc = run_checkpoint_namespace(run_dir / 'work', runtime_dir, _inside_argv(args))
+    environment = os.environ.copy()
+    environment['TMPDIR'] = str(WORK_MOUNT / '.tmp')
+    environment['TEMP'] = str(WORK_MOUNT / '.tmp')
+    environment['TMP'] = str(WORK_MOUNT / '.tmp')
+
+    rc = run_checkpoint_namespace(
+        work_dir, runtime_dir, _inside_argv(args), environment=environment,
+    )
     if rc == 0:
         shutil.rmtree(run_dir)
     else:

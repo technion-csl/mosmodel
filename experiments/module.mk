@@ -272,6 +272,16 @@ $(MEMORY_FOOTPRINT_FILE): | experiments/memory_footprint/layout4kb
 $(MODULE_NAME)/clean:
 	rm -f $(MEMORY_FOOTPRINT_FILE)
 
+.PHONY: clean-criu-temporary
+clean-criu-temporary:
+	@echo "========== [INFO] cleaning CRIU temporary data =========="
+	rm -rf "$(EXPERIMENTS_RUN_DIR)"
+	if [[ -d "$(EXPERIMENTS_ROOT_DIR)/checkpoints" ]]; then \
+		find "$(EXPERIMENTS_ROOT_DIR)/checkpoints" \
+			-mindepth 1 -maxdepth 1 -type d \
+			-exec rm -rf {} +; \
+	fi
+
 ### include common makefile
 
 ### define RESULT_DIRS to hold all created result directories

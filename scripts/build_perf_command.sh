@@ -7,7 +7,7 @@ fi
 
 perf_cmd_file=$1
 
-general_events="cpu-cycles,instructions,"
+general_events="cpu-cycles:u,instructions:u,"
 
 # We no longer measure the cache events because we want to reduce sampling and improve the measuring accuracy.
 #general_events+=",L1-dcache-loads,L1-dcache-stores,L1-dcache-load-misses,L1-dcache-store-misses"
@@ -19,7 +19,7 @@ prefix_perf_command="perf stat --interval-print=1000 --field-separator=, --outpu
 # dtlb_events=${dtlb_events%?} # remove the trailing , charachter
 #dtlb_events=dtlb_load_misses.miss_causes_a_walk,dtlb_load_misses.walk_duration,dtlb_store_misses.miss_causes_a_walk,dtlb_store_misses.walk_duration
 
-dtlb_events="dtlb_load_misses.walk_completed,dtlb_store_misses.walk_completed"
+dtlb_events="dtlb_load_misses.walk_completed:u,dtlb_store_misses.walk_completed:u"
 
 perf_command="$prefix_perf_command --event=$general_events$dtlb_events -- "
 

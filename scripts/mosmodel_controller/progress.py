@@ -105,7 +105,7 @@ class WrappedPerfInstructionsMonitor:
         ctl_read, ctl_write = os.pipe()
         ack_read, ack_write = os.pipe()
         cmd = [
-            self.config.perf_binary, 'stat', '-e', 'instructions', '-I',
+            self.config.perf_binary, 'stat', '-e', 'instructions:u', '-I',
             str(self.config.interval_ms), '-x', ';', '--no-big-num', '--delay=-1',
             f'--control=fd:{ctl_read},{ack_write}', *target,
         ]
@@ -180,7 +180,7 @@ class WrappedPerfInstructionsMonitor:
 
 
 class DetachedMeasurementPerfSession:
-    EVENTS = 'cpu-cycles,instructions,dtlb_load_misses.walk_completed,dtlb_store_misses.walk_completed'
+    EVENTS = 'cpu-cycles:u,instructions:u,dtlb_load_misses.walk_completed:u,dtlb_store_misses.walk_completed:u'
 
     def __init__(self, config: MeasurementPerfConfig):
         self.config = config
